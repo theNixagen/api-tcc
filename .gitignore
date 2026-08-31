@@ -1,0 +1,7 @@
+.env
+__pycache__/
+.venv
+mise.toml
+models
+imagens
+script*.py

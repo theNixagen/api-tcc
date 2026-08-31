@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-multipart
+opencv-python-headless
+ultralytics
+paddleocr
+paddlepaddle
+requests
+sqlalchemy
+psycopg2-binary
