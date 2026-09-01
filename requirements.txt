@@ -8,3 +8,4 @@ paddlepaddle
 requests
 sqlalchemy
 psycopg2-binary
+redis

@@ -17,9 +17,10 @@ COPY requirements.txt .
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
-COPY main.py detector.py ocr.py database.py events.py models.py ./
+COPY app ./app
+COPY gerar_raspberry_secret.py .
 COPY models ./models
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

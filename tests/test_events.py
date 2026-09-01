@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime
 from types import SimpleNamespace
 
-from events import agrupar_eventos_por_veiculo, proximo_tipo_evento
+from app.services.evento_service import agrupar_eventos_por_veiculo, proximo_tipo_evento
 
 
 class ProximoTipoEventoTest(unittest.TestCase):

@@ -1,28 +1,8 @@
-from datetime import datetime
-from typing import TYPE_CHECKING, Protocol, TypedDict
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
-
-    from models import Evento
-
-
-class EventoLike(Protocol):
-    id: int
-    placa: str
-    tipo_evento: str
-    data_hora: datetime
-
-
-class EventoResponse(TypedDict):
-    id: int
-    tipo_evento: str
-    data_hora: datetime
-
-
-class VeiculoEventosResponse(TypedDict):
-    placa: str
-    eventos: list[EventoResponse]
+from app.models.evento import Evento
+from app.schemas.evento import EventoLike, VeiculoEventosResponse
 
 
 def proximo_tipo_evento(ultimo_tipo_evento: str | None) -> str:
@@ -49,11 +29,7 @@ def agrupar_eventos_por_veiculo(
     return list(veiculos.values())
 
 
-def registrar_evento(db: "Session", placa: str) -> "Evento":
-    from sqlalchemy import select
-
-    from models import Evento
-
+def registrar_evento(db: Session, placa: str) -> Evento:
     ultimo_tipo_evento = db.scalars(
         select(Evento.tipo_evento)
         .where(Evento.placa == placa)
@@ -66,3 +42,12 @@ def registrar_evento(db: "Session", placa: str) -> "Evento":
     db.flush()
 
     return evento
+
+
+def listar_eventos_agrupados(db: Session) -> dict[str, list[VeiculoEventosResponse]]:
+    eventos = list(
+        db.scalars(
+            select(Evento).order_by(Evento.placa, Evento.data_hora, Evento.id)
+        ).all()
+    )
+    return {"veiculos": agrupar_eventos_por_veiculo(eventos)}

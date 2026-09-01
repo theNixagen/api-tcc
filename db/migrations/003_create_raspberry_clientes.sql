@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS public.raspberry_clientes (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(80) NOT NULL,
+    chave_hash VARCHAR(64) NOT NULL UNIQUE,
+    ativo BOOLEAN NOT NULL DEFAULT TRUE,
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
