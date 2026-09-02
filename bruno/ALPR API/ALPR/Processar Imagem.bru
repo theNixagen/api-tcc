@@ -1,0 +1,19 @@
+meta {
+  name: Processar Imagem
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/alpr
+  body: multipartForm
+  auth: none
+}
+
+headers {
+  X-Raspberry-Secret: {{raspberry_secret}}
+}
+
+body:multipart-form {
+  imagem: @file(/home/joao/workspace/github.com/theNixagen/script-tcc/imagens/crv.jpeg) @contentType(image/jpeg)
+}

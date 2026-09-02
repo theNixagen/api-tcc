@@ -1,0 +1,27 @@
+meta {
+  name: Criar Usuario
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/usuarios
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "username": "{{novo_usuario_username}}",
+    "senha": "{{novo_usuario_senha}}",
+    "papel": "{{novo_usuario_papel}}"
+  }
+}

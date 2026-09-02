@@ -365,6 +365,43 @@ Resposta:
 }
 ```
 
+## Relatorios
+
+Somente `admin` ou `operador`.
+
+```http
+GET /relatorios/acessos-diarios?data=2026-09-02&placa=ABC1234
+Authorization: Bearer <access_token>
+```
+
+Filtros:
+
+- `data`: data das entradas do relatorio. Se omitida, usa o dia atual.
+- `placa`: opcional, filtra uma placa especifica.
+
+Resposta:
+
+```json
+{
+  "data": "2026-09-02",
+  "veiculos": [
+    {
+      "placa": "ABC1234",
+      "acessos": [
+        {
+          "data_hora_entrada": "2026-09-02T08:00:00Z",
+          "data_hora_saida": "2026-09-02T12:00:00Z"
+        },
+        {
+          "data_hora_entrada": "2026-09-02T14:00:00Z",
+          "data_hora_saida": null
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## Scripts
 
 ### Enviar imagens locais
@@ -406,5 +443,6 @@ docker compose config
 - Clientes Raspberry acessam somente `/alpr`.
 - Rotas administrativas exigem papel `admin`.
 - `GET /eventos` exige `admin` ou `operador`.
+- `GET /relatorios/*` exige `admin` ou `operador`.
 
 Limite atual proposital: logout revoga o refresh token informado, mas nao revoga automaticamente todos os access tokens ja emitidos para o usuario. Para encerrar todas as sessoes de um usuario, remova as chaves `auth:access:*` e `auth:refresh:*` correspondentes no Redis ou adicione uma rotina administrativa dedicada.

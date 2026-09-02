@@ -2,6 +2,6 @@
 __pycache__/
 .venv
 mise.toml
-models
+/models
 imagens
 script*.py

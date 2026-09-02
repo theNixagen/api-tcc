@@ -1,0 +1,19 @@
+meta {
+  name: Acessos Diarios
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/relatorios/acessos-diarios?data={{relatorio_data}}
+  body: none
+  auth: bearer
+}
+
+params:query {
+  data: {{relatorio_data}}
+}
+
+auth:bearer {
+  token: {{access_token}}
+}

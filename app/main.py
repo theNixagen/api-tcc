@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api.routes import alpr, auth, eventos, raspberry_clientes, usuarios
+from app.api.routes import alpr, auth, eventos, raspberry_clientes, relatorios, usuarios
 from app.db.session import get_db
 from app.services.usuario_service import criar_admin_inicial
 
@@ -11,6 +11,7 @@ app.include_router(usuarios.router)
 app.include_router(raspberry_clientes.router)
 app.include_router(alpr.router)
 app.include_router(eventos.router)
+app.include_router(relatorios.router)
 
 
 @app.on_event("startup")

@@ -18,3 +18,13 @@ class EventoResponse(TypedDict):
 class VeiculoEventosResponse(TypedDict):
     placa: str
     eventos: list[EventoResponse]
+
+
+class AcessoDiarioParResponse(TypedDict):
+    data_hora_entrada: datetime
+    data_hora_saida: datetime | None
+
+
+class VeiculoAcessosDiariosResponse(TypedDict):
+    placa: str
+    acessos: list[AcessoDiarioParResponse]
