@@ -10,8 +10,8 @@ services:
       redis:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
-      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
       PYTHONUNBUFFERED: "1"
       JWT_SECRET: ${JWT_SECRET}
       ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES}
@@ -30,7 +30,10 @@ services:
   redis:
     image: redis:7-alpine
     container_name: alpr-redis
+    ports:
+      - "6379:6379"
     networks:
+      - public
       - private
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -46,8 +49,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    networks:
-      - private
+    ports:
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -56,6 +59,9 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    networks:
+      - public
+      - private
 
   postgres-migrations:
     image: postgres:16-alpine
@@ -69,7 +75,7 @@ services:
       - ./db/migrations:/migrations:ro
     networks:
       - private
-    command: ["sh", "-c", "for file in /migrations/*.sql; do psql -h \"${POSTGRES_HOST}\" -U \"${POSTGRES_USER}\" -d \"${POSTGRES_DB}\" -v ON_ERROR_STOP=1 -f \"$$file\"; done"]
+    command: ["sh", "-c", "for file in /migrations/*.sql; do psql -h postgres -U \"${POSTGRES_USER}\" -d \"${POSTGRES_DB}\" -v ON_ERROR_STOP=1 -f \"$$file\"; done"]
     restart: "no"
 
 networks:

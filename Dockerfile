@@ -18,7 +18,7 @@ RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
 COPY app ./app
-COPY gerar_raspberry_secret.py .
+COPY gerar_cliente_secret.py .
 COPY models ./models
 
 EXPOSE 8000

@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {{base_url}}/raspberry-clientes
+  url: {{base_url}}/clientes
   body: json
   auth: bearer
 }
@@ -20,7 +20,7 @@ headers {
 
 body:json {
   {
-    "nome": "{{raspberry_nome}}",
-    "chave_hash": "{{raspberry_chave_hash}}"
+    "nome": "{{cliente_nome}}",
+    "chave_hash": "{{cliente_chave_hash}}"
   }
 }

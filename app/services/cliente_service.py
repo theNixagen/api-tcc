@@ -6,29 +6,29 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.raspberry_cliente import RaspberryCliente
+from app.models.cliente import Cliente
 
 
-def gerar_raspberry_secret() -> str:
+def gerar_cliente_secret() -> str:
     return secrets.token_urlsafe(32)
 
 
-def hash_raspberry_secret(secret: str) -> str:
+def hash_cliente_secret(secret: str) -> str:
     return hashlib.sha256(secret.encode()).hexdigest()
 
 
-def buscar_cliente_por_secret(db: Session, secret: str) -> RaspberryCliente | None:
+def buscar_cliente_por_secret(db: Session, secret: str) -> Cliente | None:
     return db.scalar(
-        select(RaspberryCliente).where(
-            RaspberryCliente.chave_hash == hash_raspberry_secret(secret),
-            RaspberryCliente.ativo.is_(True),
+        select(Cliente).where(
+            Cliente.chave_hash == hash_cliente_secret(secret),
+            Cliente.ativo.is_(True),
         )
     )
 
 
-def criar_cliente(db: Session, nome: str, chave_hash: str) -> RaspberryCliente:
+def criar_cliente(db: Session, nome: str, chave_hash: str) -> Cliente:
     validar_chave_hash(chave_hash)
-    cliente = RaspberryCliente(nome=nome, chave_hash=chave_hash)
+    cliente = Cliente(nome=nome, chave_hash=chave_hash)
     db.add(cliente)
     try:
         db.commit()

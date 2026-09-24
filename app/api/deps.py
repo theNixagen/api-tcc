@@ -7,13 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.db.redis import get_redis
 from app.db.session import get_db
-from app.models.raspberry_cliente import RaspberryCliente
+from app.models.cliente import Cliente
 from app.services.auth_service import (
     UsuarioAutenticado,
     decodificar_jwt,
     validar_access_token,
 )
-from app.services.raspberry_service import buscar_cliente_por_secret
+from app.services.cliente_service import buscar_cliente_por_secret
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -39,15 +39,15 @@ def exigir_papeis(*papeis: str) -> Callable[[UsuarioAutenticado], UsuarioAutenti
     return dependency
 
 
-def raspberry_atual(
-    x_raspberry_secret: str | None = Header(default=None, alias="X-Raspberry-Secret"),
+def cliente_atual(
+    x_cliente_secret: str | None = Header(default=None, alias="X-Cliente-Secret"),
     db: Session = Depends(get_db),
-) -> RaspberryCliente:
-    if not x_raspberry_secret:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Chave do Raspberry ausente")
+) -> Cliente:
+    if not x_cliente_secret:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Chave do cliente ausente")
 
-    cliente = buscar_cliente_por_secret(db, x_raspberry_secret)
+    cliente = buscar_cliente_por_secret(db, x_cliente_secret)
     if cliente is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Chave do Raspberry invalida")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Chave do cliente invalida")
 
     return cliente

@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS public.raspberry_clientes (
+CREATE TABLE IF NOT EXISTS public.clientes (
     id SERIAL PRIMARY KEY,
     nome VARCHAR(80) NOT NULL,
     chave_hash VARCHAR(64) NOT NULL UNIQUE,

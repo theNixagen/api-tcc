@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from fastapi import HTTPException
 
-from app.api.deps import exigir_papeis, raspberry_atual
+from app.api.deps import exigir_papeis, cliente_atual
 from app.services.auth_service import (
     criar_access_token,
     criar_jwt,
@@ -16,7 +16,7 @@ from app.services.auth_service import (
     validar_refresh_token,
     verificar_senha,
 )
-from app.services.raspberry_service import gerar_raspberry_secret, hash_raspberry_secret
+from app.services.cliente_service import gerar_cliente_secret, hash_cliente_secret
 
 
 class FakeRedis:
@@ -105,18 +105,18 @@ class PapelTest(unittest.TestCase):
             dependency(SimpleNamespace(papel="operador"))
 
 
-class RaspberrySecretTest(unittest.TestCase):
+class ClienteSecretTest(unittest.TestCase):
     def test_gera_secret_de_256_bits_e_hash_sha256(self) -> None:
-        secret = gerar_raspberry_secret()
-        chave_hash = hash_raspberry_secret(secret)
+        secret = gerar_cliente_secret()
+        chave_hash = hash_cliente_secret(secret)
 
         self.assertGreaterEqual(len(secret), 43)
         self.assertEqual(len(chave_hash), 64)
         int(chave_hash, 16)
 
-    def test_rejeita_raspberry_sem_chave(self) -> None:
+    def test_rejeita_cliente_sem_chave(self) -> None:
         with self.assertRaises(HTTPException):
-            raspberry_atual(None, SimpleNamespace())
+            cliente_atual(None, SimpleNamespace())
 
 
 if __name__ == "__main__":

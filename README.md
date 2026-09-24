@@ -4,7 +4,7 @@ Backend FastAPI para reconhecimento automático de placas, registro de eventos d
 
 ## Visao Geral
 
-O sistema recebe imagens no endpoint `/alpr`, detecta placas, roda OCR e registra eventos no PostgreSQL. Usuarios humanos autenticam com JWT e refresh token. Clientes Raspberry usam um secret proprio, enviado somente para o `/alpr`.
+O sistema recebe imagens no endpoint `/alpr`, detecta placas, roda OCR e registra eventos no PostgreSQL. Usuarios humanos autenticam com JWT e refresh token. Clientes usam um secret proprio, enviado somente para o `/alpr`.
 
 Principais recursos:
 
@@ -14,20 +14,20 @@ Principais recursos:
 - Validacao de `token_id` e `refresh_token_id` no Redis.
 - Autorizacao por papeis: `admin` e `operador`.
 - Cadastro de usuarios restrito a admins.
-- Cadastro de hashes de clientes Raspberry restrito a admins.
-- Secret de Raspberry de 256 bits gerado por script local.
+- Cadastro de hashes de clientes restrito a admins.
+- Secret de cliente de 256 bits gerado por script local.
 
 ## Arquitetura
 
 ```text
 app/
   api/
-    deps.py                  # dependencias FastAPI de auth/Raspberry
+    deps.py                  # dependencias FastAPI de auth/cliente
     routes/
       alpr.py                # POST /alpr
       auth.py                # login, refresh, logout
       eventos.py             # GET /eventos
-      raspberry_clientes.py  # cadastro de hashes Raspberry
+      clientes.py            # cadastro de hashes de clientes
       usuarios.py            # cadastro de usuarios
   core/
     config.py                # env vars e constantes
@@ -36,12 +36,12 @@ app/
     session.py               # engine/session SQLAlchemy
   models/
     evento.py
-    raspberry_cliente.py
+    cliente.py
     usuario.py
   schemas/
     auth.py
     evento.py
-    raspberry.py
+    cliente.py
     usuario.py
   services/
     alpr_service.py
@@ -49,7 +49,7 @@ app/
     evento_service.py
     plate_detector.py
     plate_ocr.py
-    raspberry_service.py
+    cliente_service.py
     usuario_service.py
 ```
 
@@ -69,9 +69,9 @@ Camadas:
 - Modelo YOLO em `models/plateDetector.pt`.
 - PaddleOCR para OCR.
 
-## Variaveis de Ambiente
+## Configuracao
 
-Exemplo em `.env.example`:
+Para rodar tudo via Docker, use `.env.example`:
 
 ```env
 POSTGRES_DB=alpr
@@ -82,6 +82,26 @@ POSTGRES_PORT=5432
 
 API_PORT=8000
 REDIS_URL=redis://redis:6379/0
+
+JWT_SECRET=troque-essa-chave-em-producao
+ACCESS_TOKEN_MINUTES=15
+REFRESH_TOKEN_DAYS=7
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=admin123
+```
+
+Para desenvolvimento local, onde a API roda no seu `.venv` e apenas PostgreSQL/Redis rodam no Compose, use `.env.development.local`:
+
+```env
+POSTGRES_DB=alpr
+POSTGRES_USER=alpr
+POSTGRES_PASSWORD=alpr
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+
+DATABASE_URL=postgresql://alpr:alpr@localhost:5432/alpr
+API_PORT=8000
+REDIS_URL=redis://localhost:6379/0
 
 JWT_SECRET=troque-essa-chave-em-producao
 ACCESS_TOKEN_MINUTES=15
@@ -102,7 +122,15 @@ Para gerar um `JWT_SECRET` forte:
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-## Subindo com Docker
+## Opcao 1: Rodar Tudo Com Docker
+
+Crie o `.env` a partir do exemplo Docker:
+
+```bash
+cp .env.example .env
+```
+
+Suba todos os servicos:
 
 ```bash
 docker compose up --build
@@ -115,21 +143,80 @@ Servicos criados:
 - `postgres-migrations`: executa todos os arquivos `db/migrations/*.sql`
 - `redis`: armazenamento dos IDs de tokens ativos
 
+## Opcao 2: Rodar API Local Sem Container
+
+Neste modo, a API roda no seu Python local. O Compose sobe apenas PostgreSQL e Redis.
+
+Prerequisitos instalados no seu PC:
+
+- Python 3.12
+- Docker
+- bibliotecas do sistema usadas por OpenCV/Paddle/YOLO, equivalentes a `libglib2.0-0`, `libgl1` e `libgomp1` no Debian/Ubuntu
+
+Crie e ative o ambiente Python:
+
+```bash
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Suba apenas PostgreSQL e Redis:
+
+```bash
+docker compose -f compose.yml --env-file .env.development.local up -d --force-recreate postgres redis
+docker compose -f compose.yml --env-file .env.development.local ps
+```
+
+Se o Docker negar acesso ao socket, execute com `sudo` ou adicione seu usuario ao grupo `docker`:
+
+```bash
+sudo docker compose -f compose.yml --env-file .env.development.local up -d --force-recreate postgres redis
+sudo usermod -aG docker "$USER"
+```
+
+Depois de alterar o grupo, saia e entre de novo na sessao do terminal.
+
+Execute as migracoes e suba a API no seu PC:
+
+```bash
+. .venv/bin/activate
+python scripts/migrate.py && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+A API fica em `http://localhost:8000`.
+O PostgreSQL de desenvolvimento fica publicado em `localhost:5433`, para evitar conflito com algum Postgres local em `5432`.
+Se a migracao falhar com `Connection refused`, rode `docker compose -f compose.yml --env-file .env.development.local ps` e tente de novo quando `alpr-postgres` estiver `healthy`.
+
+Se o Postgres ja tiver sido criado antes com outra senha, e voce nao precisar manter os dados locais, recrie o volume:
+
+```bash
+docker compose -f compose.yml --env-file .env.development.local down -v
+docker compose -f compose.yml --env-file .env.development.local up -d --force-recreate postgres redis
+python scripts/migrate.py
+```
+
 ## Migrações
 
 As migrações ficam em `db/migrations`:
 
 - `001_create_eventos.sql`: tabela de eventos.
 - `002_create_usuarios.sql`: tabela de usuarios e remocao de tabela antiga de refresh tokens, se existir.
-- `003_create_raspberry_clientes.sql`: tabela de clientes Raspberry.
+- `003_create_clientes.sql`: tabela de clientes.
 
-O container `postgres-migrations` executa todos os arquivos `.sql` em ordem alfabetica.
+No Docker completo, o container `postgres-migrations` executa todos os arquivos `.sql` em ordem alfabetica.
+No desenvolvimento local, use:
+
+```bash
+python scripts/migrate.py
+```
 
 ## Autenticacao de Usuarios
 
 ### Papeis
 
-- `admin`: cria usuarios e cadastra clientes Raspberry.
+- `admin`: cria usuarios e cadastra clientes.
 - `operador`: consulta eventos.
 
 ### Login
@@ -251,38 +338,38 @@ Resposta:
 }
 ```
 
-## Clientes Raspberry
+## Clientes
 
-O Raspberry nao usa JWT. Ele usa um secret de 256 bits. O banco armazena somente o hash SHA-256 desse secret.
+O cliente nao usa JWT. Ele usa um secret de 256 bits. O banco armazena somente o hash SHA-256 desse secret.
 
 ### Gerar Secret
 
 ```bash
-.venv/bin/python gerar_raspberry_secret.py
+.venv/bin/python gerar_cliente_secret.py
 ```
 
 Saida:
 
 ```text
-secret=<valor_para_o_raspberry>
+secret=<valor_para_o_cliente>
 chave_hash=<valor_para_cadastrar_no_backend>
 ```
 
-Guarde o `secret` no Raspberry. Cadastre apenas o `chave_hash` no backend.
+Guarde o `secret` no cliente. Cadastre apenas o `chave_hash` no backend.
 
 ### Cadastrar Hash
 
 Somente `admin`.
 
 ```http
-POST /raspberry-clientes
+POST /clientes
 Authorization: Bearer <access_token_admin>
 Content-Type: application/json
 ```
 
 ```json
 {
-  "nome": "raspberry-portao-1",
+  "nome": "cliente-portao-1",
   "chave_hash": "<sha256_hex_de_64_caracteres>"
 }
 ```
@@ -292,18 +379,18 @@ Resposta:
 ```json
 {
   "id": 1,
-  "nome": "raspberry-portao-1",
+  "nome": "cliente-portao-1",
   "ativo": true
 }
 ```
 
 ## ALPR
 
-Unico endpoint acessivel aos clientes Raspberry.
+Unico endpoint acessivel aos clientes.
 
 ```http
 POST /alpr
-X-Raspberry-Secret: <secret_do_raspberry>
+X-Cliente-Secret: <secret_do_cliente>
 Content-Type: multipart/form-data
 ```
 
@@ -315,7 +402,7 @@ Exemplo:
 
 ```bash
 curl -X POST http://localhost:8000/alpr \
-  -H "X-Raspberry-Secret: $RASPBERRY_SECRET" \
+  -H "X-Cliente-Secret: $CLIENTE_SECRET" \
   -F "imagem=@imagens/crv.jpeg"
 ```
 
@@ -402,26 +489,6 @@ Resposta:
 }
 ```
 
-## Scripts
-
-### Enviar imagens locais
-
-```bash
-RASPBERRY_SECRET=<secret> .venv/bin/python scriptImagens.py
-```
-
-### Cliente com camera
-
-```bash
-RASPBERRY_SECRET=<secret> .venv/bin/python scriptRequest.py
-```
-
-### Consultar eventos
-
-```bash
-ACCESS_TOKEN=<token> .venv/bin/python scriptEventos.py
-```
-
 ## Testes
 
 ```bash
@@ -431,16 +498,18 @@ ACCESS_TOKEN=<token> .venv/bin/python scriptEventos.py
 ## Validacoes de Desenvolvimento
 
 ```bash
-.venv/bin/python -m py_compile app/main.py app/api/deps.py app/api/routes/*.py app/services/*.py app/db/*.py gerar_raspberry_secret.py
+.venv/bin/python -m py_compile app/main.py app/api/deps.py app/api/routes/*.py app/services/*.py app/db/*.py app/core/*.py scripts/migrate.py gerar_cliente_secret.py
+.venv/bin/python -m unittest discover -s tests
 docker compose config
+docker compose -f compose.yml --env-file .env.development.local config
 ```
 
 ## Seguranca
 
-- O banco nao armazena refresh tokens nem secrets de Raspberry em texto puro.
+- O banco nao armazena refresh tokens nem secrets de cliente em texto puro.
 - Refresh tokens sao rotacionados no `/auth/refresh`.
 - Access tokens sao aceitos apenas se o `token_id` ainda existir no Redis.
-- Clientes Raspberry acessam somente `/alpr`.
+- Clientes acessam somente `/alpr`.
 - Rotas administrativas exigem papel `admin`.
 - `GET /eventos` exige `admin` ou `operador`.
 - `GET /relatorios/*` exige `admin` ou `operador`.
