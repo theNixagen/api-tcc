@@ -101,7 +101,7 @@ POSTGRES_PORT=5432
 
 DATABASE_URL=postgresql://alpr:alpr@localhost:5432/alpr
 API_PORT=8000
-REDIS_URL=redis://localhost:6379/0
+REDIS_URL=redis://localhost:6377/0
 
 JWT_SECRET=troque-essa-chave-em-producao
 ACCESS_TOKEN_MINUTES=15
@@ -494,6 +494,19 @@ Resposta:
 ```bash
 .venv/bin/python -m unittest discover -s tests
 ```
+
+## Frontend
+
+O frontend fica em `frontend/` e usa React com Vite.
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+Por padrao ele consome a API em `http://localhost:8000`.
 
 ## Validacoes de Desenvolvimento
 

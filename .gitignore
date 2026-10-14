@@ -5,3 +5,5 @@ mise.toml
 /models
 imagens
 script*.py
+.env.development.local
+frontend/.env.local

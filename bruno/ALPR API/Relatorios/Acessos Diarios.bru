@@ -5,13 +5,9 @@ meta {
 }
 
 get {
-  url: {{base_url}}/relatorios/acessos-diarios?data={{relatorio_data}}
+  url: {{base_url}}/relatorios/acessos-diarios
   body: none
   auth: bearer
-}
-
-params:query {
-  data: {{relatorio_data}}
 }
 
 auth:bearer {
