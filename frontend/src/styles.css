@@ -40,6 +40,15 @@ button.secondary {
   background: #384a59;
 }
 
+button.danger {
+  background: #a52b2b;
+}
+
+button.small {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
 input,
 select {
   width: 100%;
@@ -162,6 +171,25 @@ label {
   grid-column: span 2;
 }
 
+.edit-panel {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #d7dde1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+}
+
+.checkbox input {
+  width: auto;
+  min-height: auto;
+}
+
 .notice,
 .error {
   max-width: 960px;
@@ -212,6 +240,11 @@ th {
 
 tr:last-child td {
   border-bottom: 0;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
 }
 
 @media (max-width: 780px) {

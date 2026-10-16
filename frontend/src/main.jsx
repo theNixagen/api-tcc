@@ -179,7 +179,23 @@ function Usuarios({ token }) {
     senha: "",
     papel: "operador",
   });
+  const [usuarios, setUsuarios] = useState([]);
+  const [editando, setEditando] = useState(null);
   const [mensagem, setMensagem] = useState("");
+
+  async function carregar() {
+    try {
+      setUsuarios(
+        await request("/usuarios", { headers: authHeaders(token) }),
+      );
+    } catch (error) {
+      setMensagem(error.message);
+    }
+  }
+
+  useEffect(() => {
+    carregar();
+  }, [token]);
 
   async function submit(event) {
     event.preventDefault();
@@ -192,6 +208,42 @@ function Usuarios({ token }) {
       });
       setMensagem(`Usuario ${usuario.username} criado.`);
       setForm({ username: "", senha: "", papel: "operador" });
+      await carregar();
+    } catch (error) {
+      setMensagem(error.message);
+    }
+  }
+
+  async function salvar(event) {
+    event.preventDefault();
+    setMensagem("");
+    try {
+      await request(`/usuarios/${editando.id}`, {
+        method: "PUT",
+        headers: authHeaders(token),
+        body: JSON.stringify({
+          ...editando,
+          senha: editando.senha || null,
+        }),
+      });
+      setMensagem(`Usuario ${editando.username} atualizado.`);
+      setEditando(null);
+      await carregar();
+    } catch (error) {
+      setMensagem(error.message);
+    }
+  }
+
+  async function excluir(usuario) {
+    if (!confirm(`Excluir o usuario ${usuario.username}?`)) return;
+    setMensagem("");
+    try {
+      await request(`/usuarios/${usuario.id}`, {
+        method: "DELETE",
+        headers: authHeaders(token),
+      });
+      setMensagem(`Usuario ${usuario.username} excluido.`);
+      await carregar();
     } catch (error) {
       setMensagem(error.message);
     }
@@ -233,14 +285,128 @@ function Usuarios({ token }) {
         <button>Criar usuario</button>
       </form>
       {mensagem && <p className="notice">{mensagem}</p>}
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Papel</th>
+              <th>Status</th>
+              <th>Acoes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {usuarios.length ? (
+              usuarios.map((usuario) => (
+                <tr key={usuario.id}>
+                  <td>{usuario.username}</td>
+                  <td>{usuario.papel}</td>
+                  <td>{usuario.ativo ? "Ativo" : "Inativo"}</td>
+                  <td className="actions">
+                    <button
+                      type="button"
+                      className="secondary small"
+                      onClick={() => setEditando({ ...usuario, senha: "" })}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      className="danger small"
+                      onClick={() => excluir(usuario)}
+                    >
+                      Excluir
+                    </button>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan="4">Nenhum usuario encontrado.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {editando && (
+        <form className="edit-panel form-grid" onSubmit={salvar}>
+          <label>
+            Usuario
+            <input
+              value={editando.username}
+              onChange={(event) =>
+                setEditando({ ...editando, username: event.target.value })
+              }
+              required
+            />
+          </label>
+          <label>
+            Nova senha
+            <input
+              type="password"
+              value={editando.senha}
+              onChange={(event) =>
+                setEditando({ ...editando, senha: event.target.value })
+              }
+              placeholder="Manter a atual"
+            />
+          </label>
+          <label>
+            Papel
+            <select
+              value={editando.papel}
+              onChange={(event) =>
+                setEditando({ ...editando, papel: event.target.value })
+              }
+            >
+              <option value="operador">operador</option>
+              <option value="admin">admin</option>
+            </select>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={editando.ativo}
+              onChange={(event) =>
+                setEditando({ ...editando, ativo: event.target.checked })
+              }
+            />
+            Ativo
+          </label>
+          <button>Salvar</button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setEditando(null)}
+          >
+            Cancelar
+          </button>
+        </form>
+      )}
     </section>
   );
 }
 
 function Clientes({ token }) {
   const [form, setForm] = useState({ nome: "", chave_hash: "" });
+  const [clientes, setClientes] = useState([]);
+  const [editando, setEditando] = useState(null);
   const [secret, setSecret] = useState("");
   const [mensagem, setMensagem] = useState("");
+
+  async function carregar() {
+    try {
+      setClientes(
+        await request("/clientes", { headers: authHeaders(token) }),
+      );
+    } catch (error) {
+      setMensagem(error.message);
+    }
+  }
+
+  useEffect(() => {
+    carregar();
+  }, [token]);
 
   async function gerarSecret() {
     const bytes = new Uint8Array(32);
@@ -271,6 +437,40 @@ function Clientes({ token }) {
       });
       setMensagem(`Cliente ${cliente.nome} cadastrado.`);
       setForm({ nome: "", chave_hash: "" });
+      setSecret("");
+      await carregar();
+    } catch (error) {
+      setMensagem(error.message);
+    }
+  }
+
+  async function salvar(event) {
+    event.preventDefault();
+    setMensagem("");
+    try {
+      await request(`/clientes/${editando.id}`, {
+        method: "PUT",
+        headers: authHeaders(token),
+        body: JSON.stringify(editando),
+      });
+      setMensagem(`Cliente ${editando.nome} atualizado.`);
+      setEditando(null);
+      await carregar();
+    } catch (error) {
+      setMensagem(error.message);
+    }
+  }
+
+  async function excluir(cliente) {
+    if (!confirm(`Excluir o cliente ${cliente.nome}?`)) return;
+    setMensagem("");
+    try {
+      await request(`/clientes/${cliente.id}`, {
+        method: "DELETE",
+        headers: authHeaders(token),
+      });
+      setMensagem(`Cliente ${cliente.nome} excluido.`);
+      await carregar();
     } catch (error) {
       setMensagem(error.message);
     }
@@ -310,6 +510,79 @@ function Clientes({ token }) {
         </p>
       )}
       {mensagem && <p className="notice">{mensagem}</p>}
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Status</th>
+              <th>Acoes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {clientes.length ? (
+              clientes.map((cliente) => (
+                <tr key={cliente.id}>
+                  <td>{cliente.nome}</td>
+                  <td>{cliente.ativo ? "Ativo" : "Inativo"}</td>
+                  <td className="actions">
+                    <button
+                      type="button"
+                      className="secondary small"
+                      onClick={() => setEditando({ ...cliente })}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      className="danger small"
+                      onClick={() => excluir(cliente)}
+                    >
+                      Excluir
+                    </button>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan="3">Nenhum cliente encontrado.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {editando && (
+        <form className="edit-panel form-grid" onSubmit={salvar}>
+          <label>
+            Nome
+            <input
+              value={editando.nome}
+              onChange={(event) =>
+                setEditando({ ...editando, nome: event.target.value })
+              }
+              required
+            />
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={editando.ativo}
+              onChange={(event) =>
+                setEditando({ ...editando, ativo: event.target.checked })
+              }
+            />
+            Ativo
+          </label>
+          <button>Salvar</button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setEditando(null)}
+          >
+            Cancelar
+          </button>
+        </form>
+      )}
     </section>
   );
 }
