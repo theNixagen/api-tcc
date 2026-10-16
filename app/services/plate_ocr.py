@@ -1,5 +1,5 @@
 import re
-from typing import Any
+from typing import Any, TypedDict
 
 import cv2
 from paddleocr import PaddleOCR
@@ -17,19 +17,34 @@ def normalize_plate(text: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", text)
 
 
-def read_plate(image: Any) -> str:
+class LeituraOCR(TypedDict):
+    placa: str
+    texto: str
+    confianca: float | None
+
+
+def read_plate(image: Any) -> LeituraOCR:
     image = cv2.resize(image, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
     result = ocr.predict(image)
-    texts: list[str] = []
+    texts: list[LeituraOCR] = []
 
     for item in result:
         data = item.json
         if "res" not in data:
             continue
 
-        for text in data["res"].get("rec_texts", []):
+        scores = data["res"].get("rec_scores", [])
+        for index, text in enumerate(data["res"].get("rec_texts", [])):
             plate = normalize_plate(text)
             if plate:
-                texts.append(plate)
+                texts.append(
+                    {
+                        "placa": plate,
+                        "texto": text,
+                        "confianca": float(scores[index]) if index < len(scores) else None,
+                    }
+                )
 
-    return max(texts, key=len) if texts else ""
+    if not texts:
+        return {"placa": "", "texto": "", "confianca": None}
+    return max(texts, key=lambda item: len(item["placa"]))

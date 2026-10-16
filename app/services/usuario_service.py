@@ -37,3 +37,47 @@ def criar_usuario(db: Session, username: str, senha: str, papel: str) -> Usuario
 
     db.refresh(usuario)
     return usuario
+
+
+def listar_usuarios(db: Session) -> list[Usuario]:
+    return list(db.scalars(select(Usuario).order_by(Usuario.id)).all())
+
+
+def editar_usuario(
+    db: Session,
+    usuario_id: int,
+    username: str,
+    papel: str,
+    ativo: bool,
+    senha: str | None,
+) -> Usuario:
+    if papel not in PAPEIS_VALIDOS:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Papel invalido")
+
+    usuario = buscar_usuario(db, usuario_id)
+    usuario.username = username
+    usuario.papel = papel
+    usuario.ativo = ativo
+    if senha:
+        usuario.senha_hash = hash_senha(senha)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Usuario ja existe")
+
+    db.refresh(usuario)
+    return usuario
+
+
+def excluir_usuario(db: Session, usuario_id: int) -> None:
+    db.delete(buscar_usuario(db, usuario_id))
+    db.commit()
+
+
+def buscar_usuario(db: Session, usuario_id: int) -> Usuario:
+    usuario = db.get(Usuario, usuario_id)
+    if usuario is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario nao encontrado")
+    return usuario

@@ -1,0 +1,19 @@
+meta {
+  name: Consultar Leitura
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/alpr/{{leitura_id}}
+  body: none
+  auth: none
+}
+
+headers {
+  X-Cliente-Secret: {{cliente_secret}}
+}
+
+vars:pre-request {
+  leitura_id: 1
+}

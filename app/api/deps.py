@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.db.redis import get_redis
 from app.db.session import get_db
 from app.models.cliente import Cliente
+from app.models.usuario import Usuario
 from app.services.auth_service import (
     UsuarioAutenticado,
     decodificar_jwt,
@@ -21,11 +22,20 @@ bearer = HTTPBearer(auto_error=False)
 def usuario_atual(
     credenciais: HTTPAuthorizationCredentials | None = Depends(bearer),
     cache: Any = Depends(get_redis),
+    db: Session = Depends(get_db),
 ) -> UsuarioAutenticado:
     if credenciais is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token ausente")
 
-    return validar_access_token(cache, decodificar_jwt(credenciais.credentials))
+    autenticado = validar_access_token(cache, decodificar_jwt(credenciais.credentials))
+    usuario = db.get(Usuario, autenticado.id)
+    if usuario is None or not usuario.ativo:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuario inativo")
+    return UsuarioAutenticado(
+        id=usuario.id,
+        username=usuario.username,
+        papel=usuario.papel,
+    )
 
 
 def exigir_papeis(*papeis: str) -> Callable[[UsuarioAutenticado], UsuarioAutenticado]:

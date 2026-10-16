@@ -40,6 +40,33 @@ def criar_cliente(db: Session, nome: str, chave_hash: str) -> Cliente:
     return cliente
 
 
+def listar_clientes(db: Session) -> list[Cliente]:
+    return list(db.scalars(select(Cliente).order_by(Cliente.id)).all())
+
+
+def editar_cliente(
+    db: Session, cliente_id: int, nome: str, ativo: bool
+) -> Cliente:
+    cliente = buscar_cliente(db, cliente_id)
+    cliente.nome = nome
+    cliente.ativo = ativo
+    db.commit()
+    db.refresh(cliente)
+    return cliente
+
+
+def excluir_cliente(db: Session, cliente_id: int) -> None:
+    db.delete(buscar_cliente(db, cliente_id))
+    db.commit()
+
+
+def buscar_cliente(db: Session, cliente_id: int) -> Cliente:
+    cliente = db.get(Cliente, cliente_id)
+    if cliente is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cliente nao encontrado")
+    return cliente
+
+
 def validar_chave_hash(chave_hash: str) -> None:
     try:
         int(chave_hash, 16)

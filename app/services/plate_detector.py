@@ -15,7 +15,9 @@ class PlateDetector:
         self.model = YOLO(model_path)
 
     def detect(self, image_path: str, confidence: float = 0.5) -> list[PlateDetection]:
-        results = self.model(image_path, device="cpu", conf=confidence, verbose=False)
+        results = self.model(
+            image_path, device="cpu", conf=confidence, imgsz=640, verbose=False
+        )
         image = cv2.imread(image_path)
         plates: list[PlateDetection] = []
 

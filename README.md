@@ -204,6 +204,7 @@ As migrações ficam em `db/migrations`:
 - `001_create_eventos.sql`: tabela de eventos.
 - `002_create_usuarios.sql`: tabela de usuarios e remocao de tabela antiga de refresh tokens, se existir.
 - `003_create_clientes.sql`: tabela de clientes.
+- `004_create_leituras.sql`: fila persistente de fotos e metadados de deteccao/OCR.
 
 No Docker completo, o container `postgres-migrations` executa todos os arquivos `.sql` em ordem alfabetica.
 No desenvolvimento local, use:
@@ -388,6 +389,19 @@ Resposta:
 
 Unico endpoint acessivel aos clientes.
 
+As fotos sao salvas no PostgreSQL e entram em uma fila por ordem de ID.
+O POST retorna `202 Accepted` com o ID, sem aguardar deteccao ou OCR.
+O worker consulta a fila a cada segundo e processa uma foto por vez; um lock do
+PostgreSQL impede processamento simultaneo entre instancias da API.
+Envios pendentes sobrevivem a reinicios. Uma interrupcao durante a leitura reverte
+a transacao e permite nova tentativa, sem duplicar eventos confirmados.
+Cada foto pode ter ate 10 MiB; acima disso a API retorna `413`, e arquivo vazio
+retorna `400`. As imagens originais ficam armazenadas no banco, sem limpeza automatica.
+
+Antes de iniciar a API, aplique `db/migrations/004_create_leituras.sql` pelo
+fluxo de migracoes existente (`python scripts/migrate.py` ou o servico
+`postgres-migrations` do Compose).
+
 ```http
 POST /alpr
 X-Cliente-Secret: <secret_do_cliente>
@@ -406,23 +420,67 @@ curl -X POST http://localhost:8000/alpr \
   -F "imagem=@imagens/crv.jpeg"
 ```
 
-Resposta:
+Resposta do envio (`202`, com `Location: /alpr/1`):
+
+```json
+{"id": 1, "status": "pendente"}
+```
+
+Consulte `GET /alpr/1` com o mesmo `X-Cliente-Secret`. O cliente so pode consultar
+seus proprios envios. Os status sao `pendente`, `concluida` e `erro`; uma leitura
+sem placas tambem e concluida, com `detections` vazio. O status fica `pendente`
+durante a inferencia e so muda quando a transacao termina.
+
+Para consultar o resumo da fila, use `GET /alpr/fila` com o mesmo secret:
 
 ```json
 {
+  "total": 10,
+  "pendentes": 2,
+  "concluidas": 7,
+  "erros": 1,
+  "primeira_pendente": {
+    "id": 9,
+    "nome_arquivo": "foto.jpg",
+    "criado_em": "2026-10-16T12:00:00Z"
+  }
+}
+```
+
+As contagens incluem apenas os envios do cliente autenticado. `pendentes` inclui
+a foto em processamento. `primeira_pendente` e `null` quando nao ha pendencias.
+
+Exemplo de consulta concluida (campos de data omitidos):
+
+```json
+{
+  "id": 1,
+  "status": "concluida",
+  "nome_arquivo": "crv.jpeg",
+  "content_type": "image/jpeg",
+  "tamanho_bytes": 123456,
+  "duracao_ms": 250.5,
+  "erro": null,
   "detections": [
     {
+      "id": 1,
       "placa": "ABC1234",
-      "evento": {
-        "id": 1,
-        "tipo_evento": "entrada"
-      },
-      "confidence_detection": 0.91,
-      "bbox": [10, 20, 100, 60]
+      "texto_ocr": "ABC-1234",
+      "evento_id": 1,
+      "confianca_deteccao": 0.91,
+      "confianca_ocr": 0.95,
+      "bbox": [10, 20, 100, 60],
+      "modelo": "plateDetector.onnx",
+      "imgsz": 640
     }
   ]
 }
 ```
+
+`leituras` guarda arquivo original, cliente, nome, tipo, tamanho, datas, duracao,
+status e erro. `metadados_leitura` guarda uma linha por deteccao, com vinculo ao
+envio e ao evento, placa, texto original do OCR, confiancas, bbox, modelo e imgsz.
+Falhas revertem eventos e metadados parciais; a mensagem e persistida em `leituras.erro`.
 
 ## Eventos
 

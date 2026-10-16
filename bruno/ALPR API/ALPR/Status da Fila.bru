@@ -1,0 +1,15 @@
+meta {
+  name: Status da Fila
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/alpr/fila
+  body: none
+  auth: none
+}
+
+headers {
+  X-Cliente-Secret: {{cliente_secret}}
+}
