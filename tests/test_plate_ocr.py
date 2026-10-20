@@ -35,3 +35,10 @@ class ConfiancaOCRTest(unittest.TestCase):
         self.assertEqual(self.ler({"res": {}}), {
             "placa": "", "texto": "", "confianca": None,
         })
+
+    def test_formato_valido_tem_prioridade_sobre_texto_longo(self):
+        resultado = self.ler({"res": {
+            "rec_texts": ["ESTACIONAMENTO", "ABC1D23", "XYZ9876"],
+            "rec_scores": [0.99, 0.91, 0.80],
+        }})
+        self.assertEqual(resultado["placa"], "ABC1D23")

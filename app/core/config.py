@@ -1,4 +1,5 @@
 import os
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -53,3 +54,19 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 
 PAPEIS_VALIDOS = {"operador", "admin"}
 JWT_ALGORITMO = "HS256"
+
+# Valores iniciais: calibrar as confiancas com imagens rotuladas do ambiente real.
+DETECTION_MIN_CONFIDENCE = float(os.getenv("DETECTION_MIN_CONFIDENCE", "0.70"))
+OCR_MIN_CONFIDENCE = float(os.getenv("OCR_MIN_CONFIDENCE", "0.80"))
+REPORT_TIMEZONE = ZoneInfo(os.getenv("REPORT_TIMEZONE", "America/Cuiaba"))
+ALPR_TIMEOUT_SECONDS = int(os.getenv("ALPR_TIMEOUT_SECONDS", "120"))
+ALPR_MAX_ATTEMPTS = int(os.getenv("ALPR_MAX_ATTEMPTS", "3"))
+ALPR_MAX_PENDING = int(os.getenv("ALPR_MAX_PENDING", "1000"))
+ALPR_MAX_PENDING_BYTES = int(os.getenv("ALPR_MAX_PENDING_BYTES", str(256 * 1024 * 1024)))
+IMAGE_RETENTION_DAYS = int(os.getenv("IMAGE_RETENTION_DAYS", "30"))
+if not (0 <= DETECTION_MIN_CONFIDENCE <= 1 and 0 <= OCR_MIN_CONFIDENCE <= 1):
+    raise ValueError("Confiancas devem estar entre 0 e 1")
+if min(ALPR_TIMEOUT_SECONDS, ALPR_MAX_ATTEMPTS, ALPR_MAX_PENDING, ALPR_MAX_PENDING_BYTES) < 1:
+    raise ValueError("Limites da fila devem ser positivos")
+if IMAGE_RETENTION_DAYS < 0:
+    raise ValueError("IMAGE_RETENTION_DAYS deve ser zero ou positivo")

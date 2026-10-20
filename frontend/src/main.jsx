@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+import { authHeaders, request, savedTokens, saveTokens } from "./api";
+import Leituras, { LeituraDetalhe } from "./Leituras";
+import { resolveRoute } from "./navigation";
 
 function decodeJwt(token) {
   try {
@@ -14,43 +15,33 @@ function decodeJwt(token) {
   }
 }
 
-async function request(path, options = {}) {
-  const response = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-
-  if (!response.ok) {
-    throw new Error(data?.detail || "Erro na requisicao");
-  }
-
-  return data;
-}
-
 function App() {
-  const [tokens, setTokens] = useState(() => {
-    const saved = localStorage.getItem("alpr.tokens");
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [tokens, setTokens] = useState(savedTokens);
+  useEffect(() => {
+    const atualizar = () => setTokens(savedTokens());
+    window.addEventListener("alpr.tokens", atualizar);
+    window.addEventListener("storage", atualizar);
+    return () => {
+      window.removeEventListener("alpr.tokens", atualizar);
+      window.removeEventListener("storage", atualizar);
+    };
+  }, []);
   const usuario = useMemo(
     () => (tokens?.access_token ? decodeJwt(tokens.access_token) : null),
     [tokens],
   );
 
-  function saveTokens(nextTokens) {
-    setTokens(nextTokens);
-    localStorage.setItem("alpr.tokens", JSON.stringify(nextTokens));
-  }
-
-  function logout() {
-    setTokens(null);
-    localStorage.removeItem("alpr.tokens");
+  async function logout() {
+    try {
+      const atuais = savedTokens();
+      if (atuais?.refresh_token) await request("/auth/logout", {
+        method: "POST", body: JSON.stringify({ refresh_token: atuais.refresh_token }),
+      });
+    } catch (error) {
+      window.alert(`Nao foi possivel revogar a sessao no servidor: ${error.message}`);
+    } finally {
+      saveTokens(null);
+    }
   }
 
   if (!tokens || !usuario) {
@@ -119,7 +110,16 @@ function Login({ onLogin }) {
 }
 
 function Dashboard({ tokens, usuario, onLogout }) {
-  const [aba, setAba] = useState("acessos");
+  const [hash, setHash] = useState(() => window.location.hash);
+  useEffect(() => {
+    const atualizar = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", atualizar);
+    return () => window.removeEventListener("hashchange", atualizar);
+  }, []);
+  const { aba, leituraId } = resolveRoute(hash);
+  function setAba(proxima) {
+    window.location.hash = `/${proxima}`;
+  }
   const isAdmin = usuario.papel === "admin";
 
   return (
@@ -130,6 +130,10 @@ function Dashboard({ tokens, usuario, onLogout }) {
           <h1>Gestao</h1>
         </div>
         <nav>
+          <button
+            className={aba === "leituras" ? "active" : ""}
+            onClick={() => setAba("leituras")}
+          >Leituras</button>
           <button
             className={aba === "acessos" ? "active" : ""}
             onClick={() => setAba("acessos")}
@@ -161,16 +165,16 @@ function Dashboard({ tokens, usuario, onLogout }) {
       </aside>
 
       <section className="content">
+        {aba === "leituras" && (leituraId
+          ? <LeituraDetalhe key={leituraId} token={tokens.access_token} id={leituraId} />
+          : <Leituras token={tokens.access_token} />)}
         {aba === "acessos" && <Acessos token={tokens.access_token} />}
         {aba === "usuarios" && isAdmin && <Usuarios token={tokens.access_token} />}
         {aba === "clientes" && isAdmin && <Clientes token={tokens.access_token} />}
+        {!["leituras", "acessos", "usuarios", "clientes"].includes(aba) && <p>Pagina nao encontrada.</p>}
       </section>
     </main>
   );
-}
-
-function authHeaders(token) {
-  return { Authorization: `Bearer ${token}` };
 }
 
 function Usuarios({ token }) {
@@ -595,19 +599,29 @@ function Acessos({ token }) {
     saidaInicio: "",
     saidaFim: "",
   });
-  const [eventos, setEventos] = useState(null);
+  const [pagina, setPagina] = useState({ itens: [], total: 0 });
+  const [offset, setOffset] = useState(0);
   const [erro, setErro] = useState("");
 
-  async function carregar(event) {
+  async function carregar(event, proximoOffset = 0, valores = filtros) {
     event?.preventDefault();
     setErro("");
 
     try {
-      setEventos(
-        await request("/eventos", {
+      const params = new URLSearchParams({ limit: 50, offset: proximoOffset });
+      if (valores.placa) params.set("placa", valores.placa);
+      for (const [campo, parametro] of [
+        ["entradaInicio", "entrada_inicio"], ["entradaFim", "entrada_fim"],
+        ["saidaInicio", "saida_inicio"], ["saidaFim", "saida_fim"],
+      ]) {
+        if (valores[campo]) params.set(parametro, new Date(valores[campo]).toISOString());
+      }
+      setPagina(
+        await request(`/eventos/acessos?${params}`, {
           headers: authHeaders(token),
         }),
       );
+      setOffset(proximoOffset);
     } catch (error) {
       setErro(error.message);
     }
@@ -615,12 +629,9 @@ function Acessos({ token }) {
 
   useEffect(() => {
     carregar();
-  }, []);
+  }, [token]);
 
-  const acessos = useMemo(
-    () => filtrarAcessos(montarAcessos(eventos?.veiculos || []), filtros),
-    [eventos, filtros],
-  );
+  const acessos = pagina.itens;
 
   return (
     <section>
@@ -680,15 +691,17 @@ function Acessos({ token }) {
         <button
           type="button"
           className="secondary"
-          onClick={() =>
-            setFiltros({
+          onClick={() => {
+            const vazios = {
               placa: "",
               entradaInicio: "",
               entradaFim: "",
               saidaInicio: "",
               saidaFim: "",
-            })
-          }
+            };
+            setFiltros(vazios);
+            carregar(null, 0, vazios);
+          }}
         >
           Limpar
         </button>
@@ -720,6 +733,11 @@ function Acessos({ token }) {
           </tbody>
         </table>
       </div>
+      <div className="pagination">
+        <button disabled={offset === 0} onClick={() => carregar(null, Math.max(0, offset - 50))}>Anterior</button>
+        <span>{pagina.total ? offset + 1 : 0}–{Math.min(offset + 50, pagina.total)} de {pagina.total}</span>
+        <button disabled={offset + 50 >= pagina.total} onClick={() => carregar(null, offset + 50)}>Proxima</button>
+      </div>
     </section>
   );
 }
@@ -739,64 +757,6 @@ function formatDate(value) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
-}
-
-function montarAcessos(veiculos) {
-  return veiculos.flatMap((veiculo) => {
-    const acessos = [];
-    let entrada = null;
-
-    for (const evento of veiculo.eventos) {
-      if (evento.tipo_evento === "entrada") {
-        if (entrada) {
-          acessos.push({
-            placa: veiculo.placa,
-            data_hora_entrada: entrada,
-            data_hora_saida: null,
-          });
-        }
-        entrada = evento.data_hora;
-      }
-
-      if (evento.tipo_evento === "saida" && entrada) {
-        acessos.push({
-          placa: veiculo.placa,
-          data_hora_entrada: entrada,
-          data_hora_saida: evento.data_hora,
-        });
-        entrada = null;
-      }
-    }
-
-    if (entrada) {
-      acessos.push({
-        placa: veiculo.placa,
-        data_hora_entrada: entrada,
-        data_hora_saida: null,
-      });
-    }
-
-    return acessos;
-  });
-}
-
-function filtrarAcessos(acessos, filtros) {
-  const entradaInicio = filtros.entradaInicio && new Date(filtros.entradaInicio);
-  const entradaFim = filtros.entradaFim && new Date(filtros.entradaFim);
-  const saidaInicio = filtros.saidaInicio && new Date(filtros.saidaInicio);
-  const saidaFim = filtros.saidaFim && new Date(filtros.saidaFim);
-
-  return acessos.filter((acesso) => {
-    const entrada = new Date(acesso.data_hora_entrada);
-    const saida = acesso.data_hora_saida && new Date(acesso.data_hora_saida);
-
-    if (filtros.placa && !acesso.placa.includes(filtros.placa)) return false;
-    if (entradaInicio && entrada < entradaInicio) return false;
-    if (entradaFim && entrada > entradaFim) return false;
-    if (saidaInicio && (!saida || saida < saidaInicio)) return false;
-    if (saidaFim && (!saida || saida > saidaFim)) return false;
-    return true;
-  });
 }
 
 createRoot(document.getElementById("root")).render(<App />);

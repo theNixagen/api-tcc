@@ -15,7 +15,11 @@ from app.services.auth_service import (
     validar_access_token,
     validar_refresh_token,
     verificar_senha,
+    emitir_tokens,
+    consumir_refresh,
 )
+from app.api.routes.auth import logout, refresh
+from app.schemas.auth import RefreshRequest
 from app.services.cliente_service import gerar_cliente_secret, hash_cliente_secret
 
 
@@ -32,8 +36,42 @@ class FakeRedis:
     def delete(self, key: str) -> None:
         self.data.pop(key, None)
 
+    def getdel(self, key: str):
+        return self.data.pop(key, None)
+
 
 class JwtTest(unittest.TestCase):
+    def test_logout_revoga_access_e_refresh_da_mesma_sessao(self):
+        cache = FakeRedis()
+        usuario = SimpleNamespace(id=7, username="ana", papel="operador")
+        tokens = emitir_tokens(usuario, cache)
+        access = decodificar_jwt(tokens["access_token"])
+        refresh_payload = decodificar_jwt(tokens["refresh_token"])
+        logout(RefreshRequest(refresh_token=tokens["refresh_token"]), cache)
+        for validar, payload in [(validar_access_token, access), (validar_refresh_token, refresh_payload)]:
+            with self.assertRaises(HTTPException):
+                validar(cache, payload)
+
+    def test_refresh_so_pode_ser_consumido_uma_vez(self):
+        cache = FakeRedis()
+        usuario = SimpleNamespace(id=7, username="ana", papel="operador")
+        tokens = emitir_tokens(usuario, cache)
+        payload = decodificar_jwt(tokens["refresh_token"])
+        refresh_id = validar_refresh_token(cache, payload)
+        consumir_refresh(cache, refresh_id)
+        with self.assertRaises(HTTPException):
+            consumir_refresh(cache, refresh_id)
+
+    def test_logout_revoga_tambem_tokens_emitidos_por_refresh(self):
+        cache = FakeRedis()
+        usuario = SimpleNamespace(id=7, username="ana", papel="operador", ativo=True)
+        tokens = emitir_tokens(usuario, cache)
+        db = SimpleNamespace(get=lambda *_: usuario)
+        novos = refresh(RefreshRequest(refresh_token=tokens["refresh_token"]), db, cache)
+        logout(RefreshRequest(refresh_token=tokens["refresh_token"]), cache)
+        with self.assertRaises(HTTPException):
+            validar_access_token(cache, decodificar_jwt(novos["access_token"]))
+
     def test_decodifica_token_valido(self) -> None:
         token = criar_jwt({"typ": "access", "sub": "1"}, timedelta(minutes=5))
 

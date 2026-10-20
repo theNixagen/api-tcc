@@ -205,6 +205,8 @@ As migrações ficam em `db/migrations`:
 - `002_create_usuarios.sql`: tabela de usuarios e remocao de tabela antiga de refresh tokens, se existir.
 - `003_create_clientes.sql`: tabela de clientes.
 - `004_create_leituras.sql`: fila persistente de fotos e metadados de deteccao/OCR.
+- `005_operacao_leituras.sql`: captura, tentativas, status processando, revisao auditada e indices.
+- `006_revisao_sem_deteccao.sql`: revisao da imagem original sem deteccoes, incluindo leituras antigas sem placa.
 
 No Docker completo, o container `postgres-migrations` executa todos os arquivos `.sql` em ordem alfabetica.
 No desenvolvimento local, use:
@@ -255,6 +257,7 @@ Access token:
   "username": "admin",
   "papel": "admin",
   "token_id": "...",
+  "sid": "...",
   "jti": "...",
   "exp": 1234567890
 }
@@ -269,6 +272,7 @@ Refresh token:
   "username": "admin",
   "papel": "admin",
   "refresh_token_id": "...",
+  "sid": "...",
   "jti": "...",
   "exp": 1234567890
 }
@@ -278,6 +282,7 @@ O JWT precisa ser valido e o ID correspondente precisa existir no Redis:
 
 - `auth:access:<token_id>`
 - `auth:refresh:<refresh_token_id>`
+- `auth:session:<sid>` (compartilhada pelo par de tokens e suas renovacoes)
 
 ### Refresh
 
@@ -307,7 +312,7 @@ Content-Type: application/json
 }
 ```
 
-Remove o `refresh_token_id` do Redis.
+Remove o refresh informado e a sessao do Redis, invalidando tambem os access tokens dessa sessao.
 
 ## Usuarios
 
@@ -387,7 +392,7 @@ Resposta:
 
 ## ALPR
 
-Unico endpoint acessivel aos clientes.
+Clientes usam `/alpr` e suas consultas com `X-Cliente-Secret`.
 
 As fotos sao salvas no PostgreSQL e entram em uma fila por ordem de ID.
 O POST retorna `202 Accepted` com o ID, sem aguardar deteccao ou OCR.
@@ -396,9 +401,10 @@ PostgreSQL impede processamento simultaneo entre instancias da API.
 Envios pendentes sobrevivem a reinicios. Uma interrupcao durante a leitura reverte
 a transacao e permite nova tentativa, sem duplicar eventos confirmados.
 Cada foto pode ter ate 10 MiB; acima disso a API retorna `413`, e arquivo vazio
-retorna `400`. As imagens originais ficam armazenadas no banco, sem limpeza automatica.
+retorna `400`. A admissao tem cota global de 1000 fotos e 256 MiB pendentes/em processamento;
+quando atingida retorna `503` com `Retry-After`.
 
-Antes de iniciar a API, aplique `db/migrations/004_create_leituras.sql` pelo
+Antes de iniciar a API, aplique todas as migracoes, incluindo `006_revisao_sem_deteccao.sql`, pelo
 fluxo de migracoes existente (`python scripts/migrate.py` ou o servico
 `postgres-migrations` do Compose).
 
@@ -411,6 +417,9 @@ Content-Type: multipart/form-data
 Campo do arquivo:
 
 - `imagem`
+- `capturado_em`: opcional, ISO 8601 com fuso, por exemplo `2026-10-20T14:00:00-04:00`.
+  O evento usa esse horario. Sem o campo, usa o recebimento e marca `captura_informada=false`;
+  a API nao pode recuperar o horario real de uma captura que o cliente nao informou.
 
 Exemplo:
 
@@ -427,18 +436,22 @@ Resposta do envio (`202`, com `Location: /alpr/1`):
 ```
 
 Consulte `GET /alpr/1` com o mesmo `X-Cliente-Secret`. O cliente so pode consultar
-seus proprios envios. Os status sao `pendente`, `concluida` e `erro`; uma leitura
-sem placas tambem e concluida, com `detections` vazio. O status fica `pendente`
-durante a inferencia e so muda quando a transacao termina.
+seus proprios envios. Os status sao `pendente`, `processando`, `concluida` e `erro`.
+O resultado e separado: `aceita`, `revisao` ou `rejeitada`.
+Uma imagem sem deteccoes tambem recebe `revisao`, com `detections` vazio.
+Cada deteccao conserva seu proprio resultado/motivo; uma leitura com qualquer
+deteccao pendente de revisao tem resultado `revisao`.
 
 Para consultar o resumo da fila, use `GET /alpr/fila` com o mesmo secret:
 
 ```json
 {
-  "total": 10,
+  "total": 11,
   "pendentes": 2,
+  "processando": 1,
   "concluidas": 7,
   "erros": 1,
+  "revisao": 2,
   "primeira_pendente": {
     "id": 9,
     "nome_arquivo": "foto.jpg",
@@ -447,8 +460,9 @@ Para consultar o resumo da fila, use `GET /alpr/fila` com o mesmo secret:
 }
 ```
 
-As contagens incluem apenas os envios do cliente autenticado. `pendentes` inclui
-a foto em processamento. `primeira_pendente` e `null` quando nao ha pendencias.
+As contagens incluem apenas os envios do cliente autenticado. `pendentes` nao inclui
+a foto em processamento. `revisao` e um subconjunto das concluidas, nao deve ser
+somado ao total. `primeira_pendente` e `null` quando nao ha pendencias.
 
 Exemplo de consulta concluida (campos de data omitidos):
 
@@ -481,6 +495,79 @@ Exemplo de consulta concluida (campos de data omitidos):
 status e erro. `metadados_leitura` guarda uma linha por deteccao, com vinculo ao
 envio e ao evento, placa, texto original do OCR, confiancas, bbox, modelo e imgsz.
 Falhas revertem eventos e metadados parciais; a mensagem e persistida em `leituras.erro`.
+
+Para depuracao, cada placa detectada e exportada antes do OCR para
+`logs/recortes/leitura_<id>_placa_<numero>.jpg`. O terminal da API mostra o ID da
+leitura, arquivo original, coordenadas e confiancas de deteccao e OCR em percentual.
+Se nao houver deteccao, o terminal informa isso e nenhum recorte e criado.
+No Compose, `./logs` e montado em `/app/logs`; acompanhe com
+`docker compose logs -f api`. Os recortes permanecem mesmo se o OCR falhar;
+falhas ao exportar sao registradas e nao interrompem a leitura.
+
+## Operacao e revisao das leituras
+
+O frontend tem uma aba **Leituras** para `operador` e `admin`, com fila, filtros,
+paginacao, imagem original, horarios, confiancas, tentativas, erros e historico de revisoes.
+As rotas `/leituras` usam JWT; o secret da camera nao e necessario no painel.
+O botao **Ver leitura** abre uma pagina exclusiva em `#/leituras/<id>`, com
+link de volta para a listagem. O endereco permite acesso direto, recarga e
+navegacao pelos botoes voltar/avancar do navegador.
+
+Uma placa so gera evento automaticamente se seguir o formato brasileiro antigo
+(`ABC1234`) ou Mercosul (`ABC1D23`) e atingir ambos os limites de confianca.
+Os valores iniciais sao **0.70 para deteccao** e **0.80 para OCR**, configuraveis
+por `DETECTION_MIN_CONFIDENCE` e `OCR_MIN_CONFIDENCE`. Sao valores provisórios,
+nao calibrados: avalie-os com fotos rotuladas das cameras antes de confiar nos resultados.
+O detector coleta candidatos a partir de 0.40; os candidatos abaixo do limite
+de aceitacao, com texto invalido ou confianca OCR ausente ficam para revisao.
+
+Na revisao, o operador informa placa, entrada/saida e justificativa para aceitar,
+ou apenas a justificativa para rejeitar. A auditoria preserva usuario, texto anterior,
+correcao, acao, motivo, evento e data. Uma deteccao ja revisada nao pode criar outro evento.
+Se o detector nao encontrar placas, a mesma tela oferece a revisao da imagem
+original: informar uma placa brasileira valida e entrada/saida cria um evento
+com o horario da captura; rejeitar registra a justificativa sem criar evento.
+Nao sao inventados metadados de deteccao, coordenadas ou confiancas para uma
+placa informada manualmente. Essa auditoria fica vinculada diretamente a leitura.
+Uma leitura ja aceita/rejeitada nao pode ser revisada novamente por essa rota.
+Se a foto antiga ja tiver sido removida pela retencao, somente a rejeicao fica disponivel.
+As novas leituras sem deteccao preservam a imagem enquanto aguardam revisao.
+
+O worker mantem o modelo em um subprocesso reutilizavel. `ALPR_TIMEOUT_SECONDS=120`
+limita a inferencia (incluindo a inicializacao do modelo); timeout encerra o subprocesso.
+`ALPR_MAX_ATTEMPTS=3` limita as tentativas automaticas, com espera de 5 segundos
+entre falhas. O status `processando`, inicio e contador sao persistidos antes da
+inferencia. Tarefas abandonadas sao recuperadas ao adquirir o lock global.
+O painel permite reprocessar erros com imagem disponivel; preserva o contador
+total e concede um novo lote de tentativas. Eventos e metadados sao confirmados
+juntos, somente se o resultado ainda pertence a tentativa atual.
+
+`ALPR_MAX_PENDING` e `ALPR_MAX_PENDING_BYTES` controlam as cotas da fila.
+`IMAGE_RETENTION_DAYS=30` remove automaticamente os bytes de originais finalizados
+ha mais de 30 dias, exceto os que aguardam revisao. Tambem remove recortes antigos
+de `logs/recortes`. Nomes, datas, metadados, auditoria e eventos permanecem no banco.
+A limpeza e verificada a cada hora pelo worker; `IMAGE_RETENTION_DAYS=0` a desativa.
+
+`REPORT_TIMEZONE=America/Cuiaba` define o dia local dos relatorios. Datas sao
+armazenadas com fuso; filtros de API exigem fuso e sao convertidos para UTC.
+`GET /eventos` agora aceita `placa`, `inicio`, `fim`, `limit` e `offset`.
+`GET /eventos/acessos` pagina os pares completos e aceita `placa`, `entrada_inicio`,
+`entrada_fim`, `saida_inicio`, `saida_fim`, `limit` e `offset`. A tela usa essa rota,
+sem baixar todo o historico. `/relatorios/acessos-diarios` tambem aceita `limit`/`offset`.
+
+O frontend renova tokens ao receber 401 e repete a requisicao uma vez. Logout
+revoga a sessao compartilhada por access e refresh, inclusive tokens renovados.
+Depois desta atualizacao, tokens antigos sem identificador de sessao exigem novo login.
+A sessao dura ate `REFRESH_TOKEN_DAYS` a partir do login; refresh nao prolonga esse prazo.
+
+Os scripts usam `CLIENTE_SECRET` (aceitam `RASPBERRY_SECRET` como compatibilidade)
+com o cabecalho `X-Cliente-Secret`. A camera envia `capturado_em` ao capturar o frame.
+Para arquivos historicos, informe `CAPTURADO_EM` apenas se souber o horario real;
+sem ele, o servidor identifica o horario como recebimento.
+
+Verificacao: `.venv/bin/python -m unittest discover -s tests -v` e `npm test` no frontend.
+Para testar o fluxo em PostgreSQL, defina `TEST_POSTGRES_URL`; a suite cria e remove
+schemas aleatorios exclusivos, sem alterar as tabelas publicas.
 
 ## Eventos
 
@@ -585,4 +672,5 @@ docker compose -f compose.yml --env-file .env.development.local config
 - `GET /eventos` exige `admin` ou `operador`.
 - `GET /relatorios/*` exige `admin` ou `operador`.
 
-Limite atual proposital: logout revoga o refresh token informado, mas nao revoga automaticamente todos os access tokens ja emitidos para o usuario. Para encerrar todas as sessoes de um usuario, remova as chaves `auth:access:*` e `auth:refresh:*` correspondentes no Redis ou adicione uma rotina administrativa dedicada.
+Logout encerra a sessao informada; logins independentes em outros dispositivos
+continuam validos. Desativar o usuario impede acessos e renovacoes de todas as suas sessoes.

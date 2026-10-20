@@ -18,6 +18,14 @@ services:
       REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS}
       ADMIN_USERNAME: ${ADMIN_USERNAME}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      DETECTION_MIN_CONFIDENCE: ${DETECTION_MIN_CONFIDENCE:-0.70}
+      OCR_MIN_CONFIDENCE: ${OCR_MIN_CONFIDENCE:-0.80}
+      REPORT_TIMEZONE: ${REPORT_TIMEZONE:-America/Cuiaba}
+      ALPR_TIMEOUT_SECONDS: ${ALPR_TIMEOUT_SECONDS:-120}
+      ALPR_MAX_ATTEMPTS: ${ALPR_MAX_ATTEMPTS:-3}
+      ALPR_MAX_PENDING: ${ALPR_MAX_PENDING:-1000}
+      ALPR_MAX_PENDING_BYTES: ${ALPR_MAX_PENDING_BYTES:-268435456}
+      IMAGE_RETENTION_DAYS: ${IMAGE_RETENTION_DAYS:-30}
     ports:
       - "${API_PORT}:8000"
     networks:
@@ -25,6 +33,7 @@ services:
       - private
     volumes:
       - ./models:/app/models:ro
+      - ./logs:/app/logs
     restart: unless-stopped
 
   redis:

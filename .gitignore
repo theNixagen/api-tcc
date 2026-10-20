@@ -7,3 +7,4 @@ imagens
 script*.py
 .env.development.local
 frontend/.env.local
+/logs/

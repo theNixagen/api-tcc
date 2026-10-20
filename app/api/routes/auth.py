@@ -13,6 +13,7 @@ from app.services.auth_service import (
     emitir_tokens,
     revogar_token,
     validar_refresh_token,
+    consumir_refresh,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -48,8 +49,8 @@ def refresh(
     if usuario is None or not usuario.ativo:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuario invalido")
 
-    revogar_token(cache, "refresh", refresh_token_id)
-    return emitir_tokens(usuario, cache)
+    consumir_refresh(cache, refresh_token_id)
+    return emitir_tokens(usuario, cache, payload["sid"])
 
 
 @router.post("/logout")
@@ -58,7 +59,10 @@ def logout(
     cache: Any = Depends(get_redis),
 ) -> dict[str, str]:
     payload = decodificar_jwt(dados.refresh_token)
+    if payload.get("typ") != "refresh" or not payload.get("sid"):
+        raise HTTPException(401, "Refresh token invalido")
     refresh_token_id = payload.get("refresh_token_id") or payload.get("jti")
     if refresh_token_id:
         revogar_token(cache, "refresh", str(refresh_token_id))
+    revogar_token(cache, "session", payload["sid"])
     return {"detail": "logout realizado"}

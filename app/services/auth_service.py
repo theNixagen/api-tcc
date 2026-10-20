@@ -136,7 +136,13 @@ def revogar_token(cache: Any, tipo: str, token_id: str) -> None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Redis indisponivel")
 
 
-def criar_access_token(cache: Any, usuario: Usuario) -> str:
+def nova_sessao(cache: Any) -> str:
+    session_id = secrets.token_urlsafe(24)
+    _salvar_token(cache, "session", session_id, {}, REFRESH_TOKEN_DAYS * 24 * 60 * 60)
+    return session_id
+
+
+def criar_access_token(cache: Any, usuario: Usuario, session_id: str | None = None) -> str:
     token_id = secrets.token_urlsafe(24)
     payload = {
         "typ": "access",
@@ -145,13 +151,14 @@ def criar_access_token(cache: Any, usuario: Usuario) -> str:
         "papel": usuario.papel,
         "token_id": token_id,
         "jti": token_id,
+        "sid": session_id or nova_sessao(cache),
     }
     token = criar_jwt(payload, timedelta(minutes=ACCESS_TOKEN_MINUTES))
     _salvar_token(cache, "access", token_id, payload, ACCESS_TOKEN_MINUTES * 60)
     return token
 
 
-def criar_refresh_token(cache: Any, usuario: Usuario) -> str:
+def criar_refresh_token(cache: Any, usuario: Usuario, session_id: str | None = None) -> str:
     refresh_token_id = secrets.token_urlsafe(24)
     payload = {
         "typ": "refresh",
@@ -160,6 +167,7 @@ def criar_refresh_token(cache: Any, usuario: Usuario) -> str:
         "papel": usuario.papel,
         "refresh_token_id": refresh_token_id,
         "jti": refresh_token_id,
+        "sid": session_id or nova_sessao(cache),
     }
     token = criar_jwt(payload, timedelta(days=REFRESH_TOKEN_DAYS))
     _salvar_token(
@@ -173,6 +181,7 @@ def criar_refresh_token(cache: Any, usuario: Usuario) -> str:
 
 
 def validar_access_token(cache: Any, payload: dict[str, Any]) -> UsuarioAutenticado:
+    validar_sessao(cache, payload)
     token_id = payload.get("token_id") or payload.get("jti")
     if payload.get("typ") != "access" or not token_id:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token invalido")
@@ -196,6 +205,7 @@ def validar_access_token(cache: Any, payload: dict[str, Any]) -> UsuarioAutentic
 
 
 def validar_refresh_token(cache: Any, payload: dict[str, Any]) -> str:
+    validar_sessao(cache, payload)
     refresh_token_id = payload.get("refresh_token_id") or payload.get("jti")
     if (
         payload.get("typ") != "refresh"
@@ -219,9 +229,27 @@ def autenticar_usuario(db: Session, username: str, senha: str) -> Usuario | None
     return usuario
 
 
-def emitir_tokens(usuario: Usuario, cache: Any) -> dict[str, str]:
+def validar_sessao(cache: Any, payload: dict[str, Any]) -> None:
+    session_id = payload.get("sid")
+    if not session_id or not _token_existe(cache, "session", session_id):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sessao encerrada")
+
+
+def consumir_refresh(cache: Any, refresh_id: str) -> None:
+    try:
+        if cache.getdel(f"auth:refresh:{refresh_id}") is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token ja utilizado")
+    except RedisError:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Redis indisponivel")
+
+
+def emitir_tokens(usuario: Usuario, cache: Any, session_id: str | None = None) -> dict[str, str]:
+    if session_id is None:
+        session_id = nova_sessao(cache)
+    else:
+        validar_sessao(cache, {"sid": session_id})
     return {
-        "access_token": criar_access_token(cache, usuario),
-        "refresh_token": criar_refresh_token(cache, usuario),
+        "access_token": criar_access_token(cache, usuario, session_id),
+        "refresh_token": criar_refresh_token(cache, usuario, session_id),
         "token_type": "bearer",
     }

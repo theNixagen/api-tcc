@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import alpr, auth, eventos, clientes, relatorios, usuarios
+from app.api.routes import alpr, auth, eventos, clientes, relatorios, usuarios, leituras
 from app.core.config import CORS_ORIGINS
 from app.db.session import SessionLocal
 from app.services.fila_imagens import FilaImagens
@@ -38,3 +38,4 @@ app.include_router(clientes.router)
 app.include_router(alpr.router)
 app.include_router(eventos.router)
 app.include_router(relatorios.router)
+app.include_router(leituras.router)

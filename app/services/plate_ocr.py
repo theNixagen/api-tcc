@@ -3,6 +3,7 @@ from typing import Any, TypedDict
 
 import cv2
 from paddleocr import PaddleOCR
+from app.services.validacao_leitura import placa_valida
 
 ocr = PaddleOCR(
     use_doc_orientation_classify=False,
@@ -47,4 +48,7 @@ def read_plate(image: Any) -> LeituraOCR:
 
     if not texts:
         return {"placa": "", "texto": "", "confianca": None}
-    return max(texts, key=lambda item: len(item["placa"]))
+    return max(texts, key=lambda item: (
+        placa_valida(item["placa"]),
+        item["confianca"] if item["confianca"] is not None else -1,
+    ))
