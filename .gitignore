@@ -1,4 +1,5 @@
 .env
+.env.deteccao
 __pycache__/
 .venv
 mise.toml

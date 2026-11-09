@@ -1,0 +1,14 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+    container_name: alpr-frontend
+    networks:
+      - public
+      - proxy
+    restart: unless-stopped
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}

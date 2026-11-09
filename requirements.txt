@@ -6,6 +6,7 @@ ultralytics
 paddleocr
 paddlepaddle
 requests
+python-dotenv
 sqlalchemy
 psycopg2-binary
 redis

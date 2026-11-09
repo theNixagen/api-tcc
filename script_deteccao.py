@@ -2,10 +2,12 @@
 
 Leitura independente da inferencia (sempre usa o frame mais recente).
 ByteTrack acompanha veiculos; captura uma vez por ID quando atingem
-uma regiao de interesse (ROI). Salva frame original, recorte e JSON.
+uma regiao de interesse (ROI). Salva frame original, recorte e JSON,
+e envia o original a fila da API em outra thread.
 
-Instalacao: python -m pip install ultralytics opencv-python
-Execucao:   python script_portaria_yolo26s.py
+Instalacao: python -m pip install ultralytics opencv-python requests python-dotenv
+Configure API_URL e CLIENTE_SECRET no .env.deteccao ao lado deste script.
+Execucao:   python script_deteccao.py
 Teclas:     Q ou ESC = sair | S = salvar frame manualmente
 """
 
@@ -13,10 +15,13 @@ import json
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
 import cv2
+import requests
+from dotenv import dotenv_values
 from ultralytics import YOLO
 
 # ---------- CONFIGURACOES ----------
@@ -39,6 +44,9 @@ REQUIRE_APPROACH = False       # True exige crescimento de bbox (mais restritivo
 MIN_GROWTH = 1.06              # >=6% de crescimento durante confirmacao
 
 OUTPUT_DIR = Path("capturas_portaria")
+config = dotenv_values(Path(__file__).with_name(".env.deteccao"), interpolate=False)
+API_URL = config.get("API_URL") or "http://localhost:8000/alpr"
+CLIENTE_SECRET = config.get("CLIENTE_SECRET") or ""
 # ------------------------------------
 
 
@@ -94,7 +102,35 @@ class LatestCamera:
         self.worker.join(timeout=1.0)
 
 
-def save_capture(frame, box, vehicle_id, vehicle_name, confidence):
+def send_capture(original_path, json_path, metadata):
+    try:
+        with original_path.open("rb") as image:
+            response = requests.post(
+                API_URL,
+                headers={"X-Cliente-Secret": CLIENTE_SECRET},
+                files={"imagem": (original_path.name, image, "image/jpeg")},
+                data={"capturado_em": metadata["capturado_em"]},
+                timeout=(5, 20),
+            )
+        response.raise_for_status()
+        if response.status_code != 202:
+            raise ValueError(f"Resposta inesperada da API: HTTP {response.status_code}")
+        leitura = response.json()
+        if not isinstance(leitura, dict) or not isinstance(leitura.get("id"), int):
+            raise ValueError("Resposta da API sem ID de leitura valido")
+        metadata["envio"] = {"status": "aceita", "leitura_id": leitura["id"]}
+        print(f"[FILA] Leitura {leitura['id']} aceita -> {original_path}")
+    except (requests.RequestException, ValueError, KeyError, OSError) as error:
+        # Um timeout pode ocorrer depois da aceitacao; reenviar poderia duplicar a leitura.
+        metadata["envio"] = {"status": "erro", "erro": str(error)}
+        print(f"[ENVIO FALHOU] {original_path}: {error}. Captura preservada no disco.")
+    try:
+        json_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+    except OSError as error:
+        print(f"[JSON FALHOU] {json_path}: {error}")
+
+
+def save_capture(frame, box, vehicle_id, vehicle_name, confidence, sender):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now().astimezone()
     prefix = f"{now:%Y%m%d_%H%M%S_%f}_id{vehicle_id}_{vehicle_name}"
@@ -124,15 +160,20 @@ def save_capture(frame, box, vehicle_id, vehicle_name, confidence):
         "imagem_original": str(original_path),
         "recorte": str(crop_path) if saved_crop else None,
         "resolucao_original": [width, height],
+        "envio": {"status": "pendente"},
     }
     json_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"[CAPTURA] ID={vehicle_id} {vehicle_name} {confidence:.0%} -> {original_path}")
+    sender.submit(send_capture, original_path, json_path, metadata)
     return True
 
 
 def main():
+    if not CLIENTE_SECRET:
+        raise RuntimeError("Defina CLIENTE_SECRET no .env.deteccao com o secret de um cliente cadastrado na API.")
     model = YOLO(MODEL_PATH)
     camera = LatestCamera(CAMERA_SOURCE)
+    sender = ThreadPoolExecutor(max_workers=1)
 
     # Estados por ID. ByteTrack pode trocar o ID apos perder o objeto.
     # Capturados permanece durante esta execucao; contadores antigos sao limpos.
@@ -211,7 +252,7 @@ def main():
                             grown = area_fraction >= state["initial_area"] * MIN_GROWTH
                             if state["count"] >= CONFIRM_FRAMES and (not REQUIRE_APPROACH or grown):
                                 if save_capture(original, box, vehicle_id,
-                                                VEHICLE_CLASSES[class_id], confidence):
+                                                VEHICLE_CLASSES[class_id], confidence, sender):
                                     captured_ids.add(vehicle_id)
                                     pending.pop(vehicle_id, None)
                         else:
@@ -253,6 +294,7 @@ def main():
     finally:
         camera.stop()
         cv2.destroyAllWindows()
+        sender.shutdown(wait=True)
 
 
 if __name__ == "__main__":
