@@ -1,87 +1,96 @@
-# Frontend com Nginx externo
+# Frontend no Nginx do servidor
 
-O caminho das requisicoes fica:
+O Nginx existente serve os arquivos React e encaminha `/api/*` ao backend.
+O frontend fica na raiz de um dominio ou subdominio exclusivo.
 
-```text
-Navegador -> Nginx do servidor (HTTPS) -> alpr-frontend:80
-                                         /       -> arquivos React
-                                         /api/*  -> api:8000/*
-```
+## Build
 
-O container do frontend compila o React com Node e serve os arquivos com Nginx.
-O navegador usa `/api` no mesmo dominio; nao usa `localhost:8000` nem precisa de
-outro dominio para a API. O `.env.local` do frontend fica fora do build Docker.
-O HTTPS continua no Nginx que ja existe no servidor.
-
-## Rede e inicializacao
-
-Descubra a rede Docker do Nginx existente (substitua `nome-do-nginx`):
+Na raiz do projeto, gere os arquivos usando apenas Docker:
 
 ```bash
-docker inspect nome-do-nginx --format '{{json .NetworkSettings.Networks}}'
+mkdir -p frontend/dist
+LOCAL_UID=$(id -u) LOCAL_GID=$(id -g) docker compose -f compose.frontend.yml run --rm --build frontend-build
 ```
 
-Na raiz do projeto, defina o nome dessa rede e inicie o frontend:
+O container Node instala as dependencias na imagem, gera os arquivos em
+`frontend/dist/` no host e termina. Nao inicia o backend nem um servidor web.
+O UID/GID evita gerar arquivos pertencentes ao root no Linux. Cada build
+substitui o conteudo anterior de `dist/`; copie-o ao Nginx depois de concluir.
+
+Se preferir usar Node instalado na maquina:
 
 ```bash
-export PROXY_NETWORK=nome-da-rede-do-nginx
-docker compose -f compose.yml -f compose.frontend.yml up -d --build frontend
+cd frontend
+npm ci
+npm run build:server
 ```
 
-A rede deve existir. O backend deve estar rodando pelo `compose.yml` do mesmo
-projeto, pois o frontend acessa o servico `api` pela rede `public`.
-Se ainda nao estiver rodando, inicie os dois:
+O comando gera `frontend/dist/` com `VITE_API_URL=/api`, mesmo se `.env.local`
+apontar para localhost. Essa variavel e usada durante o build, nao em runtime.
+Nenhuma variavel adicional e necessaria no backend para essa configuracao.
+Como frontend e API usam o mesmo dominio, nao e necessario configurar CORS.
+
+## Arquivos no container Nginx existente
+
+Copie o conteudo de `frontend/dist/` para um diretorio do servidor, como
+`/srv/alpr/frontend/`, e adicione este volume ao servico Nginx no Compose dele:
+
+```yaml
+volumes:
+  - /srv/alpr/frontend:/usr/share/nginx/html/alpr:ro
+```
+
+Preserve os demais volumes e configuracoes do seu Nginx. Recrie esse servico
+apos adicionar o volume; reload sozinho nao adiciona um volume ao container.
+
+## Rede com o backend
+
+O Nginx deve compartilhar uma rede Docker com `alpr-api`. Descubra a rede
+`public` do backend:
 
 ```bash
-docker compose -f compose.yml -f compose.frontend.yml up -d --build api frontend
+docker inspect alpr-api --format '{{json .NetworkSettings.Networks}}'
 ```
 
-Use os mesmos arquivos `-f` e o mesmo `PROXY_NETWORK` nos comandos seguintes.
-Tambem pode salvar `PROXY_NETWORK` no `.env` do Compose. O frontend nao publica
-portas no host; o Nginx existente acessa `alpr-frontend:80` pela rede compartilhada.
+No Compose do Nginx existente, acrescente essa rede como externa e associe-a
+ao servico Nginx, mantendo as redes que ele ja usa:
 
-## Configuracao do Nginx existente
+```yaml
+services:
+  nginx:
+    networks:
+      - alpr
 
-No bloco `server` do dominio escolhido, mantenha a configuracao de certificados
-e HTTPS existente e adicione esta localizacao:
-
-```nginx
-client_max_body_size 11m;
-
-location / {
-    proxy_pass http://alpr-frontend:80;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
+networks:
+  alpr:
+    external: true
+    name: nome-do-projeto_public
 ```
 
-Este exemplo usa um dominio ou subdominio exclusivo, como `alpr.exemplo.com`,
-com o frontend na raiz `/`. Substitua uma localizacao `/` existente em vez de
-duplicar o bloco. Preserve outras configuracoes necessarias do seu servidor.
+Substitua o nome da rede pelo encontrado no inspect.
 
-Depois de subir o frontend e editar o arquivo montado no Nginx:
+## Configuracao do dominio
+
+O arquivo `frontend/nginx.conf` e um exemplo de bloco `server` para o dominio
+`alpr.exemplo.com`. Ajuste o dominio e incorpore `root`, `index`,
+`client_max_body_size` e os dois blocos `location` ao seu `server` existente,
+preservando certificados e configuracao HTTPS. Substitua locais duplicados.
+
+`proxy_pass http://alpr-api:8000/` remove o prefixo `/api/` antes de encaminhar
+ao backend. `localhost` dentro do container Nginx apontaria para o proprio Nginx.
+
+Com o backend e o volume disponiveis, valide e recarregue:
 
 ```bash
 docker exec nome-do-nginx nginx -t
 docker exec nome-do-nginx nginx -s reload
-```
-
-O Nginx externo precisa ser recarregado se o frontend for recriado e mudar de IP.
-O Nginx do frontend atualiza automaticamente a resolucao do backend pelo DNS Docker.
-
-## Atualizacao e verificacao
-
-```bash
-docker compose -f compose.yml -f compose.frontend.yml up -d --build frontend
-docker compose -f compose.yml -f compose.frontend.yml logs --tail=50 frontend
 curl -I https://alpr.exemplo.com/
 curl https://alpr.exemplo.com/api/openapi.json
 ```
 
-Recarregue tambem o Nginx externo apos recriar o frontend.
+Recarregue o Nginx se o container do backend for recriado e mudar de IP.
+Para atualizar o frontend, gere um novo build e substitua os arquivos no
+diretorio montado, removendo assets antigos que nao sao mais usados.
 
-Referencias: [build em etapas](https://docs.docker.com/build/building/multi-stage/),
-[redes entre projetos Compose](https://docs.docker.com/compose/how-tos/networking/),
+Referencias: [redes Docker](https://docs.docker.com/compose/how-tos/networking/),
 [proxy_pass](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_pass).

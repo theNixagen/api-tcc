@@ -1,14 +1,9 @@
+name: alpr-frontend-build
+
 services:
-  frontend:
+  frontend-build:
     build:
       context: ./frontend
-    container_name: alpr-frontend
-    networks:
-      - public
-      - proxy
-    restart: unless-stopped
-
-networks:
-  proxy:
-    external: true
-    name: ${PROXY_NETWORK:-proxy}
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    volumes:
+      - ./frontend/dist:/app/dist

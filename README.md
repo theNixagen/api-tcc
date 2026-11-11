@@ -653,8 +653,8 @@ npm run dev
 
 Por padrao ele consome a API em `http://localhost:8000`.
 
-Para rodar em container atras de um Nginx existente no servidor, veja
-[Frontend com Docker e Nginx](docs/frontend-docker.md).
+Para servir o frontend diretamente no Nginx existente no servidor, veja
+[Frontend no Nginx do servidor](docs/frontend-docker.md).
 
 ## Validacoes de Desenvolvimento
 
