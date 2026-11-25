@@ -7,6 +7,7 @@ e envia o original a fila da API em outra thread.
 
 Instalacao: python -m pip install ultralytics opencv-python requests python-dotenv
 Configure API_URL e CLIENTE_SECRET no .env.deteccao ao lado deste script.
+API_URL e a URL base (ex.: https://alpr.exemplo.com/api), sem /alpr.
 Execucao:   python script_deteccao.py
 Teclas:     Q ou ESC = sair | S = salvar frame manualmente
 """
@@ -45,7 +46,7 @@ MIN_GROWTH = 1.06              # >=6% de crescimento durante confirmacao
 
 OUTPUT_DIR = Path("capturas_portaria")
 config = dotenv_values(Path(__file__).with_name(".env.deteccao"), interpolate=False)
-API_URL = config.get("API_URL") or "http://localhost:8000/alpr"
+API_URL = config.get("API_URL") or "http://localhost:8000"
 CLIENTE_SECRET = config.get("CLIENTE_SECRET") or ""
 # ------------------------------------
 
@@ -106,7 +107,7 @@ def send_capture(original_path, json_path, metadata):
     try:
         with original_path.open("rb") as image:
             response = requests.post(
-                API_URL,
+                f"{API_URL.rstrip('/')}/alpr",
                 headers={"X-Cliente-Secret": CLIENTE_SECRET},
                 files={"imagem": (original_path.name, image, "image/jpeg")},
                 data={"capturado_em": metadata["capturado_em"]},

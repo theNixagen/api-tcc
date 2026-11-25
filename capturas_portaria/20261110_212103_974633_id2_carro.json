@@ -1,0 +1,22 @@
+{
+  "capturado_em": "2026-11-10T21:21:03.974633-04:00",
+  "track_id": 2,
+  "classe": "carro",
+  "confianca": 0.6977,
+  "bbox_xyxy": [
+    149,
+    242,
+    597,
+    571
+  ],
+  "imagem_original": "capturas_portaria/20261110_212103_974633_id2_carro.jpg",
+  "recorte": "capturas_portaria/20261110_212103_974633_id2_carro_recorte.jpg",
+  "resolucao_original": [
+    1280,
+    720
+  ],
+  "envio": {
+    "status": "erro",
+    "erro": "404 Client Error: Not Found for url: http://alpr.zauza.com.br/api/"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "capturado_em": "2026-11-10T21:25:06.615060-04:00",
+  "track_id": 2,
+  "classe": "carro",
+  "confianca": 0.3921,
+  "bbox_xyxy": [
+    19,
+    1,
+    914,
+    671
+  ],
+  "imagem_original": "capturas_portaria/20261110_212506_615060_id2_carro.jpg",
+  "recorte": "capturas_portaria/20261110_212506_615060_id2_carro_recorte.jpg",
+  "resolucao_original": [
+    1280,
+    720
+  ],
+  "envio": {
+    "status": "aceita",
+    "leitura_id": 1
+  }
+}

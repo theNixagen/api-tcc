@@ -16,6 +16,7 @@ class EnvioCapturaTest(unittest.TestCase):
         }):
             self.script = runpy.run_path(str(Path(__file__).resolve().parents[1] / "script_deteccao.py"))
         self.send = self.script["send_capture"]
+        self.send.__globals__["API_URL"] = "http://api-teste/api"
         self.send.__globals__["CLIENTE_SECRET"] = "secret-teste"
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -29,7 +30,7 @@ class EnvioCapturaTest(unittest.TestCase):
         response.json.return_value = {"id": 42, "status": "pendente"}
 
         def post(url, **kwargs):
-            self.assertEqual(url, self.send.__globals__["API_URL"])
+            self.assertEqual(url, "http://api-teste/api/alpr")
             self.assertEqual(kwargs["headers"], {"X-Cliente-Secret": "secret-teste"})
             self.assertEqual(kwargs["data"], {"capturado_em": self.metadata["capturado_em"]})
             name, image, content_type = kwargs["files"]["imagem"]
@@ -50,13 +51,26 @@ class EnvioCapturaTest(unittest.TestCase):
                 "cv2": Mock(), "ultralytics": SimpleNamespace(YOLO=Mock()),
             }),
             patch("dotenv.dotenv_values", return_value={
-                "API_URL": "http://api-teste:8000/alpr", "CLIENTE_SECRET": "secret-arquivo",
+                "API_URL": "http://api-teste:8000/api", "CLIENTE_SECRET": "secret-arquivo",
             }) as load,
         ):
             script = runpy.run_path(str(script_path))
         load.assert_called_once_with(script_path.with_name(".env.deteccao"), interpolate=False)
-        self.assertEqual(script["API_URL"], "http://api-teste:8000/alpr")
+        self.assertEqual(script["API_URL"], "http://api-teste:8000/api")
         self.assertEqual(script["CLIENTE_SECRET"], "secret-arquivo")
+
+    def test_envio_preserva_prefixo_e_remove_barra_final_da_base(self):
+        for base, expected in (
+            ("http://api-teste/api/", "http://api-teste/api/alpr"),
+            ("http://localhost:8000", "http://localhost:8000/alpr"),
+        ):
+            with self.subTest(base=base):
+                self.send.__globals__["API_URL"] = base
+                response = Mock(status_code=202)
+                response.json.return_value = {"id": 42}
+                with patch.object(requests, "post", return_value=response) as post:
+                    self.send(self.image, self.report, self.metadata)
+                self.assertEqual(post.call_args.args[0], expected)
 
     def test_falhas_preservam_original_e_registram_erro_sem_reenvio(self):
         for error in (requests.Timeout("timeout"), requests.HTTPError("HTTP 429")):
