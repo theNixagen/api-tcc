@@ -1,7 +1,7 @@
 from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import case, func, select
+from sqlalchemy import DateTime, case, func, select, type_coerce
 from sqlalchemy.orm import Session
 
 from app.models.evento import Evento
@@ -12,10 +12,6 @@ from app.schemas.evento import (
     VeiculoAcessosDiariosResponse,
     VeiculoEventosResponse,
 )
-
-
-def proximo_tipo_evento(ultimo_tipo_evento: str | None) -> str:
-    return "saida" if ultimo_tipo_evento == "entrada" else "entrada"
 
 
 def agrupar_eventos_por_veiculo(
@@ -38,16 +34,8 @@ def agrupar_eventos_por_veiculo(
     return list(veiculos.values())
 
 
-def registrar_evento(db: Session, placa: str, capturado_em: datetime | None = None) -> Evento:
-    capturado_em = capturado_em or datetime.now(timezone.utc)
-    ultimo_tipo_evento = db.scalars(
-        select(Evento.tipo_evento)
-        .where(Evento.placa == placa, Evento.data_hora <= capturado_em)
-        .order_by(Evento.data_hora.desc(), Evento.id.desc())
-        .limit(1)
-    ).first()
-
-    evento = Evento(placa=placa, tipo_evento=proximo_tipo_evento(ultimo_tipo_evento), data_hora=capturado_em)
+def registrar_evento(db: Session, placa: str, tipo_evento: str, capturado_em: datetime) -> Evento:
+    evento = Evento(placa=placa, tipo_evento=tipo_evento, data_hora=capturado_em)
     db.add(evento)
     db.flush()
 
@@ -91,14 +79,17 @@ def listar_acessos(db: Session, placa=None, entrada_inicio=None, entrada_fim=Non
     sequencia = select(
         Evento.id, Evento.placa, Evento.tipo_evento, Evento.data_hora.label("entrada"),
         func.lead(Evento.tipo_evento).over(**janela).label("proximo_tipo"),
-        func.lead(Evento.data_hora).over(**janela).label("proxima_data"),
+        type_coerce(func.lead(Evento.data_hora).over(**janela), DateTime(timezone=True)).label("proxima_data"),
     )
     if placa:
         sequencia = sequencia.where(Evento.placa == placa.upper())
     sequencia = sequencia.subquery()
+    # Uma saída só fecha a entrada imediatamente anterior da mesma placa.
+    tem_saida = sequencia.c.proximo_tipo == "saida"
     pares = select(
         sequencia.c.id, sequencia.c.placa, sequencia.c.entrada.label("data_hora_entrada"),
-        case((sequencia.c.proximo_tipo == "saida", sequencia.c.proxima_data)).label("data_hora_saida"),
+        case((tem_saida, sequencia.c.proxima_data)).label("data_hora_saida"),
+        case((tem_saida, "concluido"), else_="pendente").label("status"),
     ).where(sequencia.c.tipo_evento == "entrada").subquery()
     filtros = []
     for campo, inicio, fim in [
@@ -158,6 +149,7 @@ def relatorio_acessos_diarios(
     for item in acessos["itens"]:
         veiculos.setdefault(item["placa"], []).append({
             "data_hora_entrada": item["data_hora_entrada"], "data_hora_saida": item["data_hora_saida"],
+            "status": item["status"],
         })
     return {
         "data": data_relatorio,

@@ -157,6 +157,10 @@ export function LeituraDetalhe({ token, id }) {
           <dd>{nomeLeitura(detalhe.resultado)}</dd>
         </div>
         <div>
+          <dt>Direção da câmera</dt>
+          <dd>{detalhe.direcao ? nomeLeitura(detalhe.direcao) : "Não informada"}</dd>
+        </div>
+        <div>
           <dt>Tentativas de processamento</dt>
           <dd>{detalhe.tentativas} de {detalhe.tentativas_limite}</dd>
         </div>
@@ -199,9 +203,10 @@ export function LeituraDetalhe({ token, id }) {
       </div>}
       {!detalhe.detections.length && detalhe.status === "concluida" && ["revisao", "sem_placa"].includes(detalhe.resultado) && <section className="deteccao-revisao">
         <h5>Revisão da imagem original</h5>
-        <p>Se houver uma placa na foto, informe o texto e o tipo de passagem. Caso contrário, rejeite a leitura.</p>
+        <p>Se houver uma placa na foto, informe a placa. Caso contrário, rejeite a leitura.</p>
         {!detalhe.imagem_disponivel && <p className="error">A imagem original não está mais disponível. Você pode rejeitar a leitura com uma justificativa.</p>}
-        <Revisao leituraId={detalhe.id} podeAceitar={detalhe.imagem_disponivel} token={token} onSave={carregar} />
+        <Revisao leituraId={detalhe.id} imagemDisponivel={detalhe.imagem_disponivel}
+          direcao={detalhe.direcao} token={token} onSave={carregar} />
       </section>}
       {detalhe.detections.map((item) => <div className="edit-panel deteccao-card" key={item.id}>
         <header className="deteccao-cabecalho">
@@ -225,7 +230,7 @@ export function LeituraDetalhe({ token, id }) {
         {item.resultado === "revisao" && <section className="deteccao-revisao">
           <h5>Revisão manual</h5>
           <p>Confira a imagem antes de aceitar ou rejeitar esta leitura.</p>
-          <Revisao item={item} token={token} onSave={carregar} />
+          <Revisao item={item} direcao={detalhe.direcao} token={token} onSave={carregar} />
         </section>}
       </div>)}
       {auditoria.length > 0 && <div><h4>Historico de revisoes</h4><ul>{auditoria.map((item) => <li key={item.id}>
@@ -256,13 +261,15 @@ function Foto({ id, token }) {
   return erro ? <p className="error">{erro}</p> : url ? <img className="leitura-foto" src={url} alt={`Foto original da leitura ${id}`} /> : <p>Carregando foto...</p>;
 }
 
-function Revisao({ item, leituraId, podeAceitar = true, token, onSave }) {
-  const [form, setForm] = useState({ placa: item?.placa || "", tipo_evento: "entrada", motivo: "" });
+function Revisao({ item, leituraId, imagemDisponivel = true, direcao, token, onSave }) {
+  const [form, setForm] = useState({ placa: item?.placa || "", motivo: "" });
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const podeAceitar = imagemDisponivel && Boolean(direcao);
   async function salvar(event) {
     event.preventDefault();
     const acao = event.nativeEvent.submitter?.value || "aceitar";
+    if (acao === "aceitar" && !podeAceitar) return;
     setSalvando(true);
     try {
       const rota = leituraId ? `/leituras/${leituraId}/revisar` : `/leituras/deteccoes/${item.id}/revisar`;
@@ -274,11 +281,9 @@ function Revisao({ item, leituraId, podeAceitar = true, token, onSave }) {
     finally { setSalvando(false); }
   }
   return <form onSubmit={salvar}>
+    {!direcao && <p>É preciso configurar a direção da câmera para aceitar esta leitura.</p>}
     <div className="form-grid">
       <label>Placa corrigida<input value={form.placa} maxLength={10} onChange={(e) => setForm({ ...form, placa: e.target.value.toUpperCase() })} /></label>
-      <label>Evento<select value={form.tipo_evento} onChange={(e) => setForm({ ...form, tipo_evento: e.target.value })}>
-        <option value="entrada">Entrada</option><option value="saida">Saida</option>
-      </select></label>
       <label>Justificativa<input required minLength={3} maxLength={1000} value={form.motivo} onChange={(e) => setForm({ ...form, motivo: e.target.value })} /></label>
       <button value="aceitar" disabled={salvando || !podeAceitar}>Aceitar e criar evento</button>
       <button value="rejeitar" className="danger" disabled={salvando}>Rejeitar</button>

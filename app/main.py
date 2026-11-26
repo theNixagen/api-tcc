@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import alpr, auth, eventos, clientes, relatorios, usuarios, leituras
+from app.api.routes import alpr, auth, eventos, cameras, relatorios, usuarios, leituras
 from app.core.config import CORS_ORIGINS
 from app.db.session import SessionLocal
 from app.services.fila_imagens import FilaImagens
@@ -34,7 +34,8 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(usuarios.router)
-app.include_router(clientes.router)
+app.include_router(cameras.router, prefix="/cameras")
+app.include_router(cameras.router, prefix="/clientes", include_in_schema=False)
 app.include_router(alpr.router)
 app.include_router(eventos.router)
 app.include_router(relatorios.router)

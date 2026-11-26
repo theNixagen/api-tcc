@@ -4,7 +4,7 @@ Backend FastAPI para reconhecimento automático de placas, registro de eventos d
 
 ## Visao Geral
 
-O sistema recebe imagens no endpoint `/alpr`, detecta placas, roda OCR e registra eventos no PostgreSQL. Usuarios humanos autenticam com JWT e refresh token. Clientes usam um secret proprio, enviado somente para o `/alpr`.
+O sistema recebe imagens no endpoint `/alpr`, detecta placas, roda OCR e registra eventos no PostgreSQL. Usuarios humanos autenticam com JWT e refresh token. Câmeras usam um secret proprio, enviado somente para o `/alpr`.
 
 Principais recursos:
 
@@ -14,20 +14,20 @@ Principais recursos:
 - Validacao de `token_id` e `refresh_token_id` no Redis.
 - Autorizacao por papeis: `admin` e `operador`.
 - Cadastro de usuarios restrito a admins.
-- Cadastro de hashes de clientes restrito a admins.
-- Secret de cliente de 256 bits gerado por script local.
+- Cadastro de chaves de câmeras restrito a admins.
+- Secret de câmera de 256 bits gerado por script local.
 
 ## Arquitetura
 
 ```text
 app/
   api/
-    deps.py                  # dependencias FastAPI de auth/cliente
+    deps.py                  # dependencias FastAPI de auth/câmera
     routes/
       alpr.py                # POST /alpr
       auth.py                # login, refresh, logout
       eventos.py             # GET /eventos
-      clientes.py            # cadastro de hashes de clientes
+      cameras.py            # cadastro de chaves de câmeras
       usuarios.py            # cadastro de usuarios
   core/
     config.py                # env vars e constantes
@@ -36,12 +36,12 @@ app/
     session.py               # engine/session SQLAlchemy
   models/
     evento.py
-    cliente.py
+    camera.py
     usuario.py
   schemas/
     auth.py
     evento.py
-    cliente.py
+    camera.py
     usuario.py
   services/
     alpr_service.py
@@ -49,7 +49,7 @@ app/
     evento_service.py
     plate_detector.py
     plate_ocr.py
-    cliente_service.py
+    camera_service.py
     usuario_service.py
 ```
 
@@ -203,10 +203,12 @@ As migrações ficam em `db/migrations`:
 
 - `001_create_eventos.sql`: tabela de eventos.
 - `002_create_usuarios.sql`: tabela de usuarios e remocao de tabela antiga de refresh tokens, se existir.
-- `003_create_clientes.sql`: tabela de clientes.
+- `003_create_clientes.sql`: tabela original dos cadastros.
 - `004_create_leituras.sql`: fila persistente de fotos e metadados de deteccao/OCR.
 - `005_operacao_leituras.sql`: captura, tentativas, status processando, revisao auditada e indices.
 - `006_revisao_sem_deteccao.sql`: revisao da imagem original sem deteccoes, incluindo leituras antigas sem placa.
+- `007_renomeia_clientes_para_cameras.sql`: renomeia a tabela e o vínculo das leituras, mantendo os IDs e os hashes já cadastrados.
+- `008_direcao_cameras.sql`: adiciona a direção da câmera e guarda a direção usada por cada leitura.
 
 No Docker completo, o container `postgres-migrations` executa todos os arquivos `.sql` em ordem alfabetica.
 No desenvolvimento local, use:
@@ -219,7 +221,7 @@ python scripts/migrate.py
 
 ### Papeis
 
-- `admin`: cria usuarios e cadastra clientes.
+- `admin`: cria usuarios e cadastra câmeras.
 - `operador`: consulta eventos.
 
 ### Login
@@ -344,39 +346,40 @@ Resposta:
 }
 ```
 
-## Clientes
+## Câmeras
 
-O cliente nao usa JWT. Ele usa um secret de 256 bits. O banco armazena somente o hash SHA-256 desse secret.
+Cada câmera tem uma chave própria de 256 bits. O banco armazena somente o hash SHA-256 desse secret.
 
 ### Gerar Secret
 
 ```bash
-.venv/bin/python gerar_cliente_secret.py
+.venv/bin/python gerar_camera_secret.py
 ```
 
 Saida:
 
 ```text
-secret=<valor_para_o_cliente>
+secret=<valor_para_a_camera>
 chave_hash=<valor_para_cadastrar_no_backend>
 ```
 
-Guarde o `secret` no cliente. Cadastre apenas o `chave_hash` no backend.
+Guarde o `secret` na câmera. Cadastre apenas o `chave_hash` no backend.
 
 ### Cadastrar Hash
 
 Somente `admin`.
 
 ```http
-POST /clientes
+POST /cameras
 Authorization: Bearer <access_token_admin>
 Content-Type: application/json
 ```
 
 ```json
 {
-  "nome": "cliente-portao-1",
-  "chave_hash": "<sha256_hex_de_64_caracteres>"
+  "nome": "camera-portao-1",
+  "chave_hash": "<sha256_hex_de_64_caracteres>",
+  "direcao": "entrada"
 }
 ```
 
@@ -385,14 +388,21 @@ Resposta:
 ```json
 {
   "id": 1,
-  "nome": "cliente-portao-1",
+  "nome": "camera-portao-1",
+  "direcao": "entrada",
   "ativo": true
 }
 ```
 
+Configure cada câmera como `entrada` ou `saida` no cadastro ou na edição. As
+câmeras já cadastradas ficam sem direção até serem configuradas. Elas continuam
+enviando imagens para a fila. Se a direção ainda estiver indefinida no
+processamento, a leitura fica em revisão e só pode gerar evento após a configuração.
+Uma leitura que já tem direção registrada a conserva mesmo após editar a câmera.
+
 ## ALPR
 
-Clientes usam `/alpr` e suas consultas com `X-Cliente-Secret`.
+Câmeras usam `/alpr` e suas consultas com `X-Camera-Secret`.
 
 As fotos sao salvas no PostgreSQL e entram em uma fila por ordem de ID.
 O POST retorna `202 Accepted` com o ID, sem aguardar deteccao ou OCR.
@@ -404,13 +414,13 @@ Cada foto pode ter ate 10 MiB; acima disso a API retorna `413`, e arquivo vazio
 retorna `400`. A admissao tem cota global de 1000 fotos e 256 MiB pendentes/em processamento;
 quando atingida retorna `503` com `Retry-After`.
 
-Antes de iniciar a API, aplique todas as migracoes, incluindo `006_revisao_sem_deteccao.sql`, pelo
+Antes de iniciar a API, aplique todas as migrações, incluindo `008_direcao_cameras.sql`, pelo
 fluxo de migracoes existente (`python scripts/migrate.py` ou o servico
 `postgres-migrations` do Compose).
 
 ```http
 POST /alpr
-X-Cliente-Secret: <secret_do_cliente>
+X-Camera-Secret: <secret_da_camera>
 Content-Type: multipart/form-data
 ```
 
@@ -419,13 +429,13 @@ Campo do arquivo:
 - `imagem`
 - `capturado_em`: opcional, ISO 8601 com fuso, por exemplo `2026-10-20T14:00:00-04:00`.
   O evento usa esse horario. Sem o campo, usa o recebimento e marca `captura_informada=false`;
-  a API nao pode recuperar o horario real de uma captura que o cliente nao informou.
+  a API nao pode recuperar o horario real de uma captura que a câmera não informou.
 
 Exemplo:
 
 ```bash
 curl -X POST http://localhost:8000/alpr \
-  -H "X-Cliente-Secret: $CLIENTE_SECRET" \
+  -H "X-Camera-Secret: $CAMERA_SECRET" \
   -F "imagem=@imagens/crv.jpeg"
 ```
 
@@ -435,7 +445,7 @@ Resposta do envio (`202`, com `Location: /alpr/1`):
 {"id": 1, "status": "pendente"}
 ```
 
-Consulte `GET /alpr/1` com o mesmo `X-Cliente-Secret`. O cliente so pode consultar
+Consulte `GET /alpr/1` com o mesmo `X-Camera-Secret`. A câmera so pode consultar
 seus proprios envios. Os status sao `pendente`, `processando`, `concluida` e `erro`.
 O resultado e separado: `aceita`, `revisao` ou `rejeitada`.
 Uma imagem sem deteccoes tambem recebe `revisao`, com `detections` vazio.
@@ -460,7 +470,7 @@ Para consultar o resumo da fila, use `GET /alpr/fila` com o mesmo secret:
 }
 ```
 
-As contagens incluem apenas os envios do cliente autenticado. `pendentes` nao inclui
+As contagens incluem apenas os envios da câmera autenticado. `pendentes` nao inclui
 a foto em processamento. `revisao` e um subconjunto das concluidas, nao deve ser
 somado ao total. `primeira_pendente` e `null` quando nao ha pendencias.
 
@@ -491,7 +501,7 @@ Exemplo de consulta concluida (campos de data omitidos):
 }
 ```
 
-`leituras` guarda arquivo original, cliente, nome, tipo, tamanho, datas, duracao,
+`leituras` guarda arquivo original, câmera, nome, tipo, tamanho, datas, duracao,
 status e erro. `metadados_leitura` guarda uma linha por deteccao, com vinculo ao
 envio e ao evento, placa, texto original do OCR, confiancas, bbox, modelo e imgsz.
 Falhas revertem eventos e metadados parciais; a mensagem e persistida em `leituras.erro`.
@@ -521,12 +531,13 @@ nao calibrados: avalie-os com fotos rotuladas das cameras antes de confiar nos r
 O detector coleta candidatos a partir de 0.40; os candidatos abaixo do limite
 de aceitacao, com texto invalido ou confianca OCR ausente ficam para revisao.
 
-Na revisao, o operador informa placa, entrada/saida e justificativa para aceitar,
-ou apenas a justificativa para rejeitar. A auditoria preserva usuario, texto anterior,
+Na revisão, o operador informa placa e justificativa para aceitar, ou apenas a
+justificativa para rejeitar. A câmera determina a direção do evento.
+A auditoria preserva usuario, texto anterior,
 correcao, acao, motivo, evento e data. Uma deteccao ja revisada nao pode criar outro evento.
 Se o detector nao encontrar placas, a mesma tela oferece a revisao da imagem
-original: informar uma placa brasileira valida e entrada/saida cria um evento
-com o horario da captura; rejeitar registra a justificativa sem criar evento.
+original. Informar uma placa brasileira válida cria um evento com a direção da
+câmera e o horário da captura. Rejeitar registra a justificativa sem criar evento.
 Nao sao inventados metadados de deteccao, coordenadas ou confiancas para uma
 placa informada manualmente. Essa auditoria fica vinculada diretamente a leitura.
 Uma leitura ja aceita/rejeitada nao pode ser revisada novamente por essa rota.
@@ -551,17 +562,22 @@ A limpeza e verificada a cada hora pelo worker; `IMAGE_RETENTION_DAYS=0` a desat
 `REPORT_TIMEZONE=America/Cuiaba` define o dia local dos relatorios. Datas sao
 armazenadas com fuso; filtros de API exigem fuso e sao convertidos para UTC.
 `GET /eventos` agora aceita `placa`, `inicio`, `fim`, `limit` e `offset`.
-`GET /eventos/acessos` pagina os pares completos e aceita `placa`, `entrada_inicio`,
-`entrada_fim`, `saida_inicio`, `saida_fim`, `limit` e `offset`. A tela usa essa rota,
-sem baixar todo o historico. `/relatorios/acessos-diarios` tambem aceita `limit`/`offset`.
+`GET /eventos/acessos` lista entradas com a respectiva saída, quando houver, e
+aceita `placa`, `entrada_inicio`, `entrada_fim`, `saida_inicio`, `saida_fim`,
+`limit` e `offset`. A saída fecha a entrada imediatamente anterior da mesma
+placa, em ordem de captura. Com duas entradas seguidas, a anterior permanece
+`pendente` e a saída fecha a mais recente. Uma saída sem entrada correspondente
+continua no histórico de eventos. `/relatorios/acessos-diarios` usa a mesma regra.
 
 O frontend renova tokens ao receber 401 e repete a requisicao uma vez. Logout
 revoga a sessao compartilhada por access e refresh, inclusive tokens renovados.
 Depois desta atualizacao, tokens antigos sem identificador de sessao exigem novo login.
 A sessao dura ate `REFRESH_TOKEN_DAYS` a partir do login; refresh nao prolonga esse prazo.
 
-Os scripts usam `CLIENTE_SECRET` (aceitam `RASPBERRY_SECRET` como compatibilidade)
-com o cabecalho `X-Cliente-Secret`. A camera envia `capturado_em` ao capturar o frame.
+O script de detecção usa `CAMERA_SECRET` em `.env.deteccao` e envia a chave no
+cabeçalho `X-Camera-Secret`, junto com `capturado_em`. O script ainda aceita
+`CLIENTE_SECRET` como nome alternativo. A API mantém `/clientes` e
+`X-Cliente-Secret` para integrações existentes.
 Para arquivos historicos, informe `CAPTURADO_EM` apenas se souber o horario real;
 sem ele, o servidor identifica o horario como recebimento.
 
@@ -622,11 +638,13 @@ Resposta:
       "acessos": [
         {
           "data_hora_entrada": "2026-09-02T08:00:00Z",
-          "data_hora_saida": "2026-09-02T12:00:00Z"
+          "data_hora_saida": "2026-09-02T12:00:00Z",
+          "status": "concluido"
         },
         {
           "data_hora_entrada": "2026-09-02T14:00:00Z",
-          "data_hora_saida": null
+          "data_hora_saida": null,
+          "status": "pendente"
         }
       ]
     }
@@ -659,7 +677,7 @@ Para servir o frontend diretamente no Nginx existente no servidor, veja
 ## Validacoes de Desenvolvimento
 
 ```bash
-.venv/bin/python -m py_compile app/main.py app/api/deps.py app/api/routes/*.py app/services/*.py app/db/*.py app/core/*.py scripts/migrate.py gerar_cliente_secret.py
+.venv/bin/python -m py_compile app/main.py app/api/deps.py app/api/routes/*.py app/services/*.py app/db/*.py app/core/*.py scripts/migrate.py gerar_camera_secret.py
 .venv/bin/python -m unittest discover -s tests
 docker compose config
 docker compose -f compose.yml --env-file .env.development.local config
@@ -667,10 +685,10 @@ docker compose -f compose.yml --env-file .env.development.local config
 
 ## Seguranca
 
-- O banco nao armazena refresh tokens nem secrets de cliente em texto puro.
+- O banco nao armazena refresh tokens nem secrets de câmera em texto puro.
 - Refresh tokens sao rotacionados no `/auth/refresh`.
 - Access tokens sao aceitos apenas se o `token_id` ainda existir no Redis.
-- Clientes acessam somente `/alpr`.
+- Câmeras acessam somente `/alpr`.
 - Rotas administrativas exigem papel `admin`.
 - `GET /eventos` exige `admin` ou `operador`.
 - `GET /relatorios/*` exige `admin` ou `operador`.

@@ -5,19 +5,7 @@ from types import SimpleNamespace
 from app.services.evento_service import (
     agrupar_eventos_por_veiculo,
     gerar_acessos_diarios,
-    proximo_tipo_evento,
 )
-
-
-class ProximoTipoEventoTest(unittest.TestCase):
-    def test_primeiro_evento_e_entrada(self) -> None:
-        self.assertEqual(proximo_tipo_evento(None), "entrada")
-
-    def test_entrada_aberta_vira_saida(self) -> None:
-        self.assertEqual(proximo_tipo_evento("entrada"), "saida")
-
-    def test_ultimo_par_fechado_vira_nova_entrada(self) -> None:
-        self.assertEqual(proximo_tipo_evento("saida"), "entrada")
 
 
 class AgruparEventosPorVeiculoTest(unittest.TestCase):

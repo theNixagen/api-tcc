@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import cliente_atual
+from app.api.deps import camera_atual
 from app.db.session import get_db
-from app.models.cliente import Cliente
+from app.models.camera import Camera
 from app.models.leitura import Leitura, MetadadosLeitura
 from app.core.config import ALPR_MAX_ATTEMPTS
-from app.services.leitura_service import verificar_cota
+from app.services.leitura_service import direcao_da_leitura, verificar_cota
 from app.schemas.leitura import (
     FilaStatusResponse, LeituraFilaResponse,
     LeituraAceitaResponse, LeituraResponse, MetadadosLeituraResponse,
@@ -26,7 +26,7 @@ def alpr(
     imagem: UploadFile = File(...),
     capturado_em: datetime | None = Form(default=None),
     db: Session = Depends(get_db),
-    cliente: Cliente = Depends(cliente_atual),
+    camera: Camera = Depends(camera_atual),
 ) -> LeituraAceitaResponse:
     recebido_em = datetime.now(timezone.utc)
     if capturado_em is not None and (
@@ -41,7 +41,8 @@ def alpr(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Imagem vazia")
     verificar_cota(db, len(content))
     leitura = Leitura(
-        cliente_id=cliente.id,
+        camera_id=camera.id,
+        direcao=camera.direcao,
         nome_arquivo=imagem.filename or "imagem",
         content_type=imagem.content_type,
         imagem=content,
@@ -61,13 +62,13 @@ def alpr(
 @router.get("/alpr/fila", response_model=FilaStatusResponse)
 def consultar_fila(
     db: Session = Depends(get_db),
-    cliente: Cliente = Depends(cliente_atual),
+    camera: Camera = Depends(camera_atual),
 ) -> FilaStatusResponse:
-    return resumo_fila(db, cliente.id)
+    return resumo_fila(db, camera.id)
 
 
-def resumo_fila(db: Session, cliente_id: int | None = None) -> FilaStatusResponse:
-    filtros = [Leitura.cliente_id == cliente_id] if cliente_id is not None else []
+def resumo_fila(db: Session, camera_id: int | None = None) -> FilaStatusResponse:
+    filtros = [Leitura.camera_id == camera_id] if camera_id is not None else []
     contagens = dict(db.execute(
         select(Leitura.status, func.count(Leitura.id))
         .where(*filtros)
@@ -94,10 +95,10 @@ def resumo_fila(db: Session, cliente_id: int | None = None) -> FilaStatusRespons
 def consultar_leitura(
     leitura_id: int,
     db: Session = Depends(get_db),
-    cliente: Cliente = Depends(cliente_atual),
+    camera: Camera = Depends(camera_atual),
 ) -> LeituraResponse:
     leitura = db.scalar(
-        select(Leitura).where(Leitura.id == leitura_id, Leitura.cliente_id == cliente.id)
+        select(Leitura).where(Leitura.id == leitura_id, Leitura.camera_id == camera.id)
     )
     if leitura is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Leitura nao encontrada")
@@ -112,6 +113,7 @@ def resposta_leitura(db: Session, leitura: Leitura) -> LeituraResponse:
     ).all()
     return LeituraResponse(
         id=leitura.id,
+        direcao=direcao_da_leitura(db, leitura) if leitura.resultado in ("revisao", "sem_placa") else leitura.direcao,
         status=leitura.status,
         nome_arquivo=leitura.nome_arquivo,
         content_type=leitura.content_type,

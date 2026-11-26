@@ -17,3 +17,7 @@ test("IDs invalidos nao abrem a pagina de detalhes", () => {
   for (const hash of ["#/leituras/abc", "#/leituras/0", "#/leituras/42/outra"])
     assert.equal(resolveRoute(hash).leituraId, null);
 });
+
+test("links antigos do cadastro de clientes abrem câmeras", () => {
+  assert.deepEqual(resolveRoute("#/clientes"), resolveRoute("#/cameras"));
+});

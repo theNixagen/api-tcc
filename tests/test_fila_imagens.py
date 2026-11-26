@@ -15,17 +15,19 @@ from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.deps import cliente_atual, usuario_atual
+from app.api.deps import camera_atual, usuario_atual
 from app.api.routes.alpr import router
+from app.api.routes.cameras import router as cameras_router
 from app.api.routes.leituras import router as leituras_router
 from app.db.session import Base, get_db
-from app.models.cliente import Cliente
+from app.models.camera import Camera
 from app.models.evento import Evento
 from app.models.leitura import Leitura, MetadadosLeitura
 from app.models.usuario import Usuario
 from app.models.leitura import RevisaoLeitura
-from app.services.fila_imagens import FilaImagens, Processador, limpar_imagens
+from app.services.camera_service import hash_camera_secret
 from app.services.evento_service import listar_acessos, relatorio_acessos_diarios
+from app.services.fila_imagens import FilaImagens, Processador, limpar_imagens
 
 
 class FilaImagensTest(unittest.TestCase):
@@ -54,16 +56,17 @@ class FilaImagensTest(unittest.TestCase):
         Base.metadata.create_all(self.engine)
         self.session = sessionmaker(bind=self.engine)
         with self.session() as db:
-            cliente = Cliente(nome="Camera", chave_hash="a" * 64)
-            db.add(cliente)
+            camera = Camera(nome="Camera", chave_hash=hash_camera_secret("chave-entrada"), direcao="entrada")
+            db.add(camera)
             usuario = Usuario(username="operador", senha_hash="hash", papel="operador")
             db.add(usuario)
             db.commit()
-            self.cliente_id = cliente.id
+            self.camera_id = camera.id
             self.usuario = SimpleNamespace(id=usuario.id, username=usuario.username, papel=usuario.papel)
 
         app = FastAPI()
         app.include_router(router)
+        app.include_router(cameras_router, prefix="/cameras")
         app.include_router(leituras_router)
 
         def get_test_db():
@@ -71,7 +74,7 @@ class FilaImagensTest(unittest.TestCase):
                 yield db
 
         app.dependency_overrides[get_db] = get_test_db
-        app.dependency_overrides[cliente_atual] = lambda: SimpleNamespace(id=self.cliente_id)
+        app.dependency_overrides[camera_atual] = lambda: SimpleNamespace(id=self.camera_id, direcao="entrada")
         app.dependency_overrides[usuario_atual] = lambda: self.usuario
         self.client = TestClient(app)
         self.worker = FilaImagens.__new__(FilaImagens)
@@ -165,10 +168,32 @@ class FilaImagensTest(unittest.TestCase):
         with self.session() as db:
             self.assertIsNone(db.scalar(select(Evento)))
 
-    def test_cliente_nao_consulta_envio_de_outro_cliente(self):
-        leitura_id = self.enviar()
-        self.cliente_id = 999
-        self.assertEqual(self.client.get(f"/alpr/{leitura_id}").status_code, 404)
+    def test_cadastro_de_camera_e_acesso_a_leitura_com_chave_propria(self):
+        dados = {"nome": "Portão 1", "chave_hash": hash_camera_secret("chave-teste"), "direcao": "saida"}
+        self.assertEqual(self.client.post("/cameras", json=dados).status_code, 403)
+        self.usuario.papel = "admin"
+        self.assertEqual(self.client.post("/cameras", json={**dados, "direcao": "ambos"}).status_code, 422)
+        criada = self.client.post("/cameras", json=dados)
+        self.assertEqual(criada.status_code, 201)
+        camera_id = criada.json()["id"]
+        self.assertIn(criada.json(), self.client.get("/cameras").json())
+        self.client.app.dependency_overrides.pop(camera_atual)
+
+        envio = self.client.post("/alpr", files={"imagem": ("foto.jpg", b"foto")}, headers={
+            "X-Camera-Secret": "chave-teste",
+        })
+        self.assertEqual(envio.status_code, 202)
+        leitura_id = envio.json()["id"]
+        with self.session() as db:
+            leitura = db.get(Leitura, leitura_id)
+            self.assertEqual((leitura.camera_id, leitura.direcao), (camera_id, "saida"))
+
+        caminho = f"/alpr/{leitura_id}"
+        self.assertEqual(self.client.get(caminho, headers={"X-Cliente-Secret": "chave-teste"}).status_code, 200)
+        with self.session() as db:
+            db.get(Camera, self.camera_id).chave_hash = hash_camera_secret("outra-chave")
+            db.commit()
+        self.assertEqual(self.client.get(caminho, headers={"X-Camera-Secret": "outra-chave"}).status_code, 404)
 
     def test_rejeita_imagem_vazia_e_maior_que_limite(self):
         for content, codigo in [(b"", 400), (b"x" * (10 * 1024 * 1024 + 1), 413)]:
@@ -184,18 +209,18 @@ class FilaImagensTest(unittest.TestCase):
             "primeira_pendente": None,
         })
 
-    def test_resumo_da_fila_separa_status_e_clientes(self):
+    def test_resumo_da_fila_separa_status_e_cameras(self):
         concluida = self.enviar()
         erro = self.enviar()
         pendente = self.enviar("pendente.jpg")
         with self.session() as db:
             db.get(Leitura, concluida).status = "concluida"
             db.get(Leitura, erro).status = "erro"
-            outro = Cliente(nome="Outra camera", chave_hash="b" * 64)
+            outro = Camera(nome="Outra camera", chave_hash="b" * 64)
             db.add(outro)
             db.flush()
             db.add(Leitura(
-                cliente_id=outro.id, nome_arquivo="privado.jpg",
+                camera_id=outro.id, nome_arquivo="privado.jpg",
                 imagem=b"foto", tamanho_bytes=4,
             ))
             db.commit()
@@ -230,7 +255,7 @@ class FilaImagensTest(unittest.TestCase):
     def test_aceita_imagem_sem_deteccao_com_auditoria_e_sem_duplicar_evento(self):
         leitura_id = self.enviar()
         self.processar([])
-        dados = {"acao": "aceitar", "placa": "ABC1D23", "tipo_evento": "entrada", "motivo": "Placa conferida na imagem"}
+        dados = {"acao": "aceitar", "placa": "ABC1D23", "motivo": "Placa conferida na imagem"}
         response = self.client.post(f"/leituras/{leitura_id}/revisar", json=dados)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(self.client.post(f"/leituras/{leitura_id}/revisar", json=dados).status_code, 409)
@@ -241,7 +266,7 @@ class FilaImagensTest(unittest.TestCase):
         with self.session() as db:
             evento = db.scalar(select(Evento))
             leitura = db.get(Leitura, leitura_id)
-            self.assertEqual(evento.placa, "ABC1D23")
+            self.assertEqual((evento.placa, evento.tipo_evento), ("ABC1D23", "entrada"))
             self.assertEqual(evento.data_hora, leitura.capturado_em)
             self.assertEqual(leitura.resultado, "aceita")
             self.assertIsNone(db.scalar(select(MetadadosLeitura)))
@@ -259,7 +284,7 @@ class FilaImagensTest(unittest.TestCase):
     def test_revisao_sem_deteccao_rejeita_placa_invalida_ou_imagem_ausente(self):
         leitura_id = self.enviar()
         self.processar([])
-        dados = {"acao": "aceitar", "placa": "BRASIL", "tipo_evento": "entrada", "motivo": "Conferido na imagem"}
+        dados = {"acao": "aceitar", "placa": "BRASIL", "motivo": "Conferido na imagem"}
         self.assertEqual(self.client.post(f"/leituras/{leitura_id}/revisar", json=dados).status_code, 422)
         with self.session() as db:
             db.get(Leitura, leitura_id).imagem = None
@@ -287,7 +312,7 @@ class FilaImagensTest(unittest.TestCase):
         self.assertEqual(self.client.post(f"/leituras/deteccoes/{metadado}/revisar", json=dados).status_code, 409)
         with self.session() as db:
             evento = db.scalar(select(Evento))
-            self.assertEqual((evento.placa, evento.tipo_evento), ("ABC1D23", "saida"))
+            self.assertEqual((evento.placa, evento.tipo_evento), ("ABC1D23", "entrada"))
             auditoria = db.scalar(select(RevisaoLeitura))
             self.assertEqual(auditoria.username, "operador")
             self.assertEqual(auditoria.placa_anterior, "ABC1234")
@@ -312,6 +337,67 @@ class FilaImagensTest(unittest.TestCase):
             evento = db.scalar(select(Evento))
             self.assertEqual(evento.data_hora.replace(tzinfo=timezone.utc), datetime(2026, 1, 2, 3, tzinfo=timezone.utc))
             self.assertTrue(db.get(Leitura, response.json()["id"]).captura_informada)
+
+    def test_cameras_definem_eventos_e_saida_fecha_apenas_a_entrada_mais_recente(self):
+        self.client.app.dependency_overrides.pop(camera_atual)
+        with self.session() as db:
+            db.add(Camera(nome="Saída", chave_hash=hash_camera_secret("chave-saida"), direcao="saida"))
+            db.commit()
+
+        inicio = datetime(2026, 1, 2, 12, tzinfo=timezone.utc)
+        for minuto, chave in ((2, "entrada"), (1, "entrada"), (3, "saida"), (4, "saida"), (0, "saida")):
+            captura = inicio + timedelta(minutes=minuto)
+            resposta = self.client.post("/alpr", headers={"X-Camera-Secret": f"chave-{chave}"},
+                files={"imagem": ("foto.jpg", b"foto")}, data={"capturado_em": captura.isoformat()})
+            self.assertEqual(resposta.status_code, 202, resposta.text)
+
+        self.usuario.papel = "admin"
+        resposta = self.client.put(f"/cameras/{self.camera_id}", json={
+            "nome": "Portão", "ativo": True, "direcao": "saida",
+        })
+        self.assertEqual(resposta.json()["direcao"], "saida")
+        for _ in range(5):
+            self.assertTrue(self.processar([self.deteccao()]))
+
+        with self.session() as db:
+            eventos = list(db.scalars(select(Evento).order_by(Evento.data_hora)))
+            self.assertEqual([e.tipo_evento for e in eventos], ["saida", "entrada", "entrada", "saida", "saida"])
+            acessos = listar_acessos(db, placa="ABC1234")["itens"]
+        self.assertEqual(
+            [(a["id"], a["status"], a["data_hora_saida"]) for a in acessos],
+            [(eventos[2].id, "concluido", eventos[3].data_hora), (eventos[1].id, "pendente", None)],
+        )
+
+    def test_camera_sem_direcao_vai_para_revisao_ate_ser_configurada(self):
+        self.client.app.dependency_overrides.pop(camera_atual)
+        with self.session() as db:
+            db.get(Camera, self.camera_id).direcao = None
+            db.commit()
+        envio = self.client.post("/alpr", headers={"X-Camera-Secret": "chave-entrada"},
+            files={"imagem": ("foto.jpg", b"foto")})
+        self.assertEqual(envio.status_code, 202, envio.text)
+        leitura_id = envio.json()["id"]
+        self.processar([self.deteccao()])
+        rota_detalhe = f"/leituras/{leitura_id}"
+        detalhe = self.client.get(rota_detalhe).json()
+        self.assertIsNone(detalhe["direcao"])
+        self.assertEqual(detalhe["resultado"], "revisao")
+        deteccao = detalhe["detections"][0]
+        self.assertIsNone(deteccao["evento_id"])
+        rota_revisao = f"/leituras/deteccoes/{deteccao['id']}/revisar"
+        dados = {"acao": "aceitar", "placa": "ABC1234", "motivo": "Placa conferida"}
+        self.assertEqual(self.client.post(rota_revisao, json=dados).status_code, 409)
+
+        self.usuario.papel = "admin"
+        resposta = self.client.put(f"/cameras/{self.camera_id}", json={
+            "nome": "Portão", "ativo": True, "direcao": "saida",
+        })
+        self.assertEqual(resposta.status_code, 200, resposta.text)
+        self.assertEqual(self.client.get(rota_detalhe).json()["direcao"], "saida")
+        self.assertEqual(self.client.post(rota_revisao, json=dados).status_code, 200)
+        with self.session() as db:
+            self.assertEqual(db.scalar(select(Evento)).tipo_evento, "saida")
+            self.assertEqual(db.get(Leitura, leitura_id).direcao, "saida")
 
     def test_captura_sem_fuso_e_rejeitada(self):
         response = self.client.post("/alpr", files={"imagem": ("foto.jpg", b"foto")}, data={"capturado_em": "2026-01-01T12:00:00"})

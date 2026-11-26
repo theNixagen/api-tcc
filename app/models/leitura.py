@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    DateTime, Float, ForeignKey, Integer, JSON, LargeBinary, String, Text, func,
+    CheckConstraint, DateTime, Float, ForeignKey, Integer, JSON, LargeBinary, String, Text, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -10,11 +10,13 @@ from app.db.session import Base
 
 class Leitura(Base):
     __tablename__ = "leituras"
+    __table_args__ = (CheckConstraint("direcao IN ('entrada', 'saida')", name="leituras_direcao_check"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    cliente_id: Mapped[int | None] = mapped_column(
-        ForeignKey("clientes.id", ondelete="SET NULL")
+    camera_id: Mapped[int | None] = mapped_column(
+        ForeignKey("cameras.id", ondelete="SET NULL")
     )
+    direcao: Mapped[str | None] = mapped_column(String(10))
     nome_arquivo: Mapped[str] = mapped_column(Text)
     content_type: Mapped[str | None] = mapped_column(Text)
     imagem: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)

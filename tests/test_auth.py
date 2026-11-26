@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from fastapi import HTTPException
 
-from app.api.deps import exigir_papeis, cliente_atual
+from app.api.deps import exigir_papeis, camera_atual
 from app.services.auth_service import (
     criar_access_token,
     criar_jwt,
@@ -20,7 +20,7 @@ from app.services.auth_service import (
 )
 from app.api.routes.auth import logout, refresh
 from app.schemas.auth import RefreshRequest
-from app.services.cliente_service import gerar_cliente_secret, hash_cliente_secret
+from app.services.camera_service import gerar_camera_secret, hash_camera_secret
 
 
 class FakeRedis:
@@ -143,18 +143,18 @@ class PapelTest(unittest.TestCase):
             dependency(SimpleNamespace(papel="operador"))
 
 
-class ClienteSecretTest(unittest.TestCase):
+class CameraSecretTest(unittest.TestCase):
     def test_gera_secret_de_256_bits_e_hash_sha256(self) -> None:
-        secret = gerar_cliente_secret()
-        chave_hash = hash_cliente_secret(secret)
+        secret = gerar_camera_secret()
+        chave_hash = hash_camera_secret(secret)
 
         self.assertGreaterEqual(len(secret), 43)
         self.assertEqual(len(chave_hash), 64)
         int(chave_hash, 16)
 
-    def test_rejeita_cliente_sem_chave(self) -> None:
+    def test_rejeita_camera_sem_chave(self) -> None:
         with self.assertRaises(HTTPException):
-            cliente_atual(None, SimpleNamespace())
+            camera_atual(None, SimpleNamespace(), None)
 
 
 if __name__ == "__main__":

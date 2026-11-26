@@ -9,7 +9,7 @@ from app.api.routes.usuarios import editar_usuario as editar_usuario_rota
 from app.api.routes.usuarios import excluir_usuario
 from app.schemas.usuario import UsuarioUpdateRequest
 from app.services.auth_service import UsuarioAutenticado
-from app.services.cliente_service import editar_cliente
+from app.services.camera_service import editar_camera
 from app.services.usuario_service import editar_usuario
 
 
@@ -88,15 +88,15 @@ class GestaoUsuariosTest(unittest.TestCase):
         self.assertEqual(erro.exception.status_code, 401)
 
 
-class GestaoClientesTest(unittest.TestCase):
-    def test_edita_nome_e_status_do_cliente(self) -> None:
-        cliente = SimpleNamespace(nome="Portao 1", ativo=True)
-        db = FakeSession(cliente)
+class GestaoCamerasTest(unittest.TestCase):
+    def test_edita_nome_status_e_direcao_da_camera(self) -> None:
+        camera = SimpleNamespace(nome="Portao 1", ativo=True, direcao="entrada")
+        db = FakeSession(camera)
 
-        resultado = editar_cliente(db, 1, "Portao 2", False)
+        resultado = editar_camera(db, 1, "Portao 2", False, "saida")
 
-        self.assertIs(resultado, cliente)
-        self.assertEqual((cliente.nome, cliente.ativo), ("Portao 2", False))
+        self.assertIs(resultado, camera)
+        self.assertEqual((camera.nome, camera.ativo, camera.direcao), ("Portao 2", False, "saida"))
         self.assertEqual((db.commits, db.refreshes), (1, 1))
 
 

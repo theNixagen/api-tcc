@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { authHeaders, request, savedTokens, saveTokens } from "./api";
 import Leituras, { LeituraDetalhe } from "./Leituras";
+import { nomeLeitura } from "./nomesLeitura";
 import { resolveRoute } from "./navigation";
 
 function decodeJwt(token) {
@@ -149,10 +150,10 @@ function Dashboard({ tokens, usuario, onLogout }) {
                 Usuarios
               </button>
               <button
-                className={aba === "clientes" ? "active" : ""}
-                onClick={() => setAba("clientes")}
+                className={aba === "cameras" ? "active" : ""}
+                onClick={() => setAba("cameras")}
               >
-                Clientes
+                Câmeras
               </button>
             </>
           )}
@@ -170,8 +171,8 @@ function Dashboard({ tokens, usuario, onLogout }) {
           : <Leituras token={tokens.access_token} />)}
         {aba === "acessos" && <Acessos token={tokens.access_token} />}
         {aba === "usuarios" && isAdmin && <Usuarios token={tokens.access_token} />}
-        {aba === "clientes" && isAdmin && <Clientes token={tokens.access_token} />}
-        {!["leituras", "acessos", "usuarios", "clientes"].includes(aba) && <p>Pagina nao encontrada.</p>}
+        {aba === "cameras" && isAdmin && <Cameras token={tokens.access_token} />}
+        {!["leituras", "acessos", "usuarios", "cameras"].includes(aba) && <p>Pagina nao encontrada.</p>}
       </section>
     </main>
   );
@@ -391,17 +392,30 @@ function Usuarios({ token }) {
   );
 }
 
-function Clientes({ token }) {
-  const [form, setForm] = useState({ nome: "", chave_hash: "" });
-  const [clientes, setClientes] = useState([]);
+function DirecaoCamera({ valor, onChange, obrigatoria = false }) {
+  return (
+    <label>
+      Direção
+      <select value={valor || ""} onChange={(event) => onChange(event.target.value)} required={obrigatoria}>
+        <option value="" disabled>Selecione a direção</option>
+        <option value="entrada">Entrada</option>
+        <option value="saida">Saída</option>
+      </select>
+    </label>
+  );
+}
+
+function Cameras({ token }) {
+  const [form, setForm] = useState({ nome: "", chave_hash: "", direcao: "" });
+  const [cameras, setCameras] = useState([]);
   const [editando, setEditando] = useState(null);
   const [secret, setSecret] = useState("");
   const [mensagem, setMensagem] = useState("");
 
   async function carregar() {
     try {
-      setClientes(
-        await request("/clientes", { headers: authHeaders(token) }),
+      setCameras(
+        await request("/cameras", { headers: authHeaders(token) }),
       );
     } catch (error) {
       setMensagem(error.message);
@@ -434,13 +448,13 @@ function Clientes({ token }) {
     event.preventDefault();
     setMensagem("");
     try {
-      const cliente = await request("/clientes", {
+      const camera = await request("/cameras", {
         method: "POST",
         headers: authHeaders(token),
         body: JSON.stringify(form),
       });
-      setMensagem(`Cliente ${cliente.nome} cadastrado.`);
-      setForm({ nome: "", chave_hash: "" });
+      setMensagem(`Câmera ${camera.nome} cadastrada.`);
+      setForm({ nome: "", chave_hash: "", direcao: "" });
       setSecret("");
       await carregar();
     } catch (error) {
@@ -452,12 +466,12 @@ function Clientes({ token }) {
     event.preventDefault();
     setMensagem("");
     try {
-      await request(`/clientes/${editando.id}`, {
+      await request(`/cameras/${editando.id}`, {
         method: "PUT",
         headers: authHeaders(token),
         body: JSON.stringify(editando),
       });
-      setMensagem(`Cliente ${editando.nome} atualizado.`);
+      setMensagem(`Câmera ${editando.nome} atualizada.`);
       setEditando(null);
       await carregar();
     } catch (error) {
@@ -465,15 +479,15 @@ function Clientes({ token }) {
     }
   }
 
-  async function excluir(cliente) {
-    if (!confirm(`Excluir o cliente ${cliente.nome}?`)) return;
+  async function excluir(camera) {
+    if (!confirm(`Excluir a câmera ${camera.nome}?`)) return;
     setMensagem("");
     try {
-      await request(`/clientes/${cliente.id}`, {
+      await request(`/cameras/${camera.id}`, {
         method: "DELETE",
         headers: authHeaders(token),
       });
-      setMensagem(`Cliente ${cliente.nome} excluido.`);
+      setMensagem(`Câmera ${camera.nome} excluída.`);
       await carregar();
     } catch (error) {
       setMensagem(error.message);
@@ -482,19 +496,20 @@ function Clientes({ token }) {
 
   return (
     <section>
-      <Header title="Clientes" subtitle="Cadastro de clientes que enviam imagens." />
+      <Header title="Câmeras" subtitle="A direção da câmera define se a leitura registra uma entrada ou uma saída." />
       <form className="form-grid" onSubmit={submit}>
         <label>
           Nome
           <input
             value={form.nome}
             onChange={(event) => setForm({ ...form, nome: event.target.value })}
-            placeholder="cliente-portao-1"
+            placeholder="Câmera do portão 1"
             required
           />
         </label>
+        <DirecaoCamera valor={form.direcao} onChange={(direcao) => setForm({ ...form, direcao })} obrigatoria />
         <label className="wide">
-          Hash do secret
+          Hash da chave da câmera
           <input
             value={form.chave_hash}
             onChange={(event) =>
@@ -504,13 +519,13 @@ function Clientes({ token }) {
           />
         </label>
         <button type="button" className="secondary" onClick={gerarSecret}>
-          Gerar secret
+          Gerar chave
         </button>
-        <button>Cadastrar cliente</button>
+        <button>Cadastrar câmera</button>
       </form>
       {secret && (
         <p className="notice">
-          Secret gerado: <code>{secret}</code>
+          Chave da câmera: <code>{secret}</code>
         </p>
       )}
       {mensagem && <p className="notice">{mensagem}</p>}
@@ -518,29 +533,31 @@ function Clientes({ token }) {
         <table>
           <thead>
             <tr>
-              <th>Cliente</th>
+              <th>Câmera</th>
+              <th>Direção</th>
               <th>Status</th>
-              <th>Acoes</th>
+              <th>Ações</th>
             </tr>
           </thead>
           <tbody>
-            {clientes.length ? (
-              clientes.map((cliente) => (
-                <tr key={cliente.id}>
-                  <td>{cliente.nome}</td>
-                  <td>{cliente.ativo ? "Ativo" : "Inativo"}</td>
+            {cameras.length ? (
+              cameras.map((camera) => (
+                <tr key={camera.id}>
+                  <td>{camera.nome}</td>
+                  <td>{camera.direcao ? nomeLeitura(camera.direcao) : "Não configurada"}</td>
+                  <td>{camera.ativo ? "Ativa" : "Inativa"}</td>
                   <td className="actions">
                     <button
                       type="button"
                       className="secondary small"
-                      onClick={() => setEditando({ ...cliente })}
+                      onClick={() => setEditando({ ...camera })}
                     >
                       Editar
                     </button>
                     <button
                       type="button"
                       className="danger small"
-                      onClick={() => excluir(cliente)}
+                      onClick={() => excluir(camera)}
                     >
                       Excluir
                     </button>
@@ -549,7 +566,7 @@ function Clientes({ token }) {
               ))
             ) : (
               <tr>
-                <td colSpan="3">Nenhum cliente encontrado.</td>
+                <td colSpan="4">Nenhuma câmera cadastrada.</td>
               </tr>
             )}
           </tbody>
@@ -567,6 +584,7 @@ function Clientes({ token }) {
               required
             />
           </label>
+          <DirecaoCamera valor={editando.direcao} onChange={(direcao) => setEditando({ ...editando, direcao })} />
           <label className="checkbox">
             <input
               type="checkbox"
@@ -575,7 +593,7 @@ function Clientes({ token }) {
                 setEditando({ ...editando, ativo: event.target.checked })
               }
             />
-            Ativo
+            Ativa
           </label>
           <button>Salvar</button>
           <button
@@ -713,16 +731,16 @@ function Acessos({ token }) {
             <tr>
               <th>Placa</th>
               <th>Entrada</th>
-              <th>Saida</th>
+              <th>Saída</th>
             </tr>
           </thead>
           <tbody>
             {acessos?.length ? (
-              acessos.map((acesso, index) => (
-                <tr key={`${acesso.placa}-${index}`}>
+              acessos.map((acesso) => (
+                <tr key={acesso.id}>
                   <td>{acesso.placa}</td>
                   <td>{formatDate(acesso.data_hora_entrada)}</td>
-                  <td>{formatDate(acesso.data_hora_saida) || "Em aberto"}</td>
+                  <td>{formatDate(acesso.data_hora_saida) || "Pendente"}</td>
                 </tr>
               ))
             ) : (

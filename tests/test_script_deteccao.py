@@ -17,7 +17,7 @@ class EnvioCapturaTest(unittest.TestCase):
             self.script = runpy.run_path(str(Path(__file__).resolve().parents[1] / "script_deteccao.py"))
         self.send = self.script["send_capture"]
         self.send.__globals__["API_URL"] = "http://api-teste/api"
-        self.send.__globals__["CLIENTE_SECRET"] = "secret-teste"
+        self.send.__globals__["CAMERA_SECRET"] = "secret-teste"
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.image = Path(self.temp.name) / "veiculo.jpg"
@@ -31,7 +31,7 @@ class EnvioCapturaTest(unittest.TestCase):
 
         def post(url, **kwargs):
             self.assertEqual(url, "http://api-teste/api/alpr")
-            self.assertEqual(kwargs["headers"], {"X-Cliente-Secret": "secret-teste"})
+            self.assertEqual(kwargs["headers"], {"X-Camera-Secret": "secret-teste"})
             self.assertEqual(kwargs["data"], {"capturado_em": self.metadata["capturado_em"]})
             name, image, content_type = kwargs["files"]["imagem"]
             self.assertEqual((name, image.read(), content_type),
@@ -51,13 +51,13 @@ class EnvioCapturaTest(unittest.TestCase):
                 "cv2": Mock(), "ultralytics": SimpleNamespace(YOLO=Mock()),
             }),
             patch("dotenv.dotenv_values", return_value={
-                "API_URL": "http://api-teste:8000/api", "CLIENTE_SECRET": "secret-arquivo",
+                "API_URL": "http://api-teste:8000/api", "CAMERA_SECRET": "secret-arquivo",
             }) as load,
         ):
             script = runpy.run_path(str(script_path))
         load.assert_called_once_with(script_path.with_name(".env.deteccao"), interpolate=False)
         self.assertEqual(script["API_URL"], "http://api-teste:8000/api")
-        self.assertEqual(script["CLIENTE_SECRET"], "secret-arquivo")
+        self.assertEqual(script["CAMERA_SECRET"], "secret-arquivo")
 
     def test_envio_preserva_prefixo_e_remove_barra_final_da_base(self):
         for base, expected in (

@@ -7,14 +7,14 @@ from sqlalchemy.orm import Session
 
 from app.db.redis import get_redis
 from app.db.session import get_db
-from app.models.cliente import Cliente
+from app.models.camera import Camera
 from app.models.usuario import Usuario
 from app.services.auth_service import (
     UsuarioAutenticado,
     decodificar_jwt,
     validar_access_token,
 )
-from app.services.cliente_service import buscar_cliente_por_secret
+from app.services.camera_service import buscar_camera_por_secret
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -49,15 +49,19 @@ def exigir_papeis(*papeis: str) -> Callable[[UsuarioAutenticado], UsuarioAutenti
     return dependency
 
 
-def cliente_atual(
-    x_cliente_secret: str | None = Header(default=None, alias="X-Cliente-Secret"),
+def camera_atual(
+    x_camera_secret: str | None = Header(default=None, alias="X-Camera-Secret"),
     db: Session = Depends(get_db),
-) -> Cliente:
-    if not x_cliente_secret:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Chave do cliente ausente")
+    x_cliente_secret: str | None = Header(
+        default=None, alias="X-Cliente-Secret", include_in_schema=False
+    ),
+) -> Camera:
+    secret = x_camera_secret if x_camera_secret is not None else x_cliente_secret
+    if not secret:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Chave da câmera ausente")
 
-    cliente = buscar_cliente_por_secret(db, x_cliente_secret)
-    if cliente is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Chave do cliente invalida")
+    camera = buscar_camera_por_secret(db, secret)
+    if camera is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Chave da câmera inválida")
 
-    return cliente
+    return camera

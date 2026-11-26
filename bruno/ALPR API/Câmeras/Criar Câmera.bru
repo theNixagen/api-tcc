@@ -1,11 +1,11 @@
 meta {
-  name: Criar Cliente
+  name: Criar Câmera
   type: http
   seq: 1
 }
 
 post {
-  url: {{base_url}}/clientes
+  url: {{base_url}}/cameras
   body: json
   auth: bearer
 }
@@ -20,7 +20,8 @@ headers {
 
 body:json {
   {
-    "nome": "{{cliente_nome}}",
-    "chave_hash": "{{cliente_chave_hash}}"
+    "nome": "{{camera_nome}}",
+    "chave_hash": "{{camera_chave_hash}}",
+    "direcao": "entrada"
   }
 }

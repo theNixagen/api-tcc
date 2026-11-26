@@ -57,7 +57,7 @@ def imagem(leitura_id: int, db: Session = Depends(get_db)):
     content = db.scalar(select(Leitura.imagem).where(Leitura.id == leitura_id))
     if content is None:
         raise HTTPException(404, "Imagem nao disponivel ou removida pela retencao")
-    # Nao reproduz Content-Type enviado pelo cliente (poderia servir HTML ativo).
+    # Nao reproduz Content-Type enviado pelo camera (poderia servir HTML ativo).
     mime = "application/octet-stream"
     if content.startswith(b"\xff\xd8\xff"):
         mime = "image/jpeg"

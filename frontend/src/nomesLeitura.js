@@ -9,6 +9,8 @@ const nomes = {
   rejeitada: "Leitura rejeitada",
   aceitar: "Aceitou a leitura",
   rejeitar: "Rejeitou a leitura",
+  entrada: "Entrada",
+  saida: "Saída",
 };
 
 export function nomeLeitura(valor) {

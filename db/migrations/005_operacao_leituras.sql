@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS public.revisoes_leitura (
 );
 CREATE INDEX IF NOT EXISTS ix_eventos_placa_data ON public.eventos(placa, data_hora, id);
 CREATE INDEX IF NOT EXISTS ix_eventos_data ON public.eventos(data_hora, id);
-CREATE INDEX IF NOT EXISTS ix_leituras_cliente_status ON public.leituras(cliente_id, status, id);
 CREATE INDEX IF NOT EXISTS ix_leituras_data ON public.leituras(criado_em DESC, id DESC);
 CREATE INDEX IF NOT EXISTS ix_leituras_resultado ON public.leituras(resultado, id);
 CREATE INDEX IF NOT EXISTS ix_metadados_placa ON public.metadados_leitura(placa, leitura_id);

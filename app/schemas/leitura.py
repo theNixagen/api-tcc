@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.camera import DirecaoCamera
+
 
 class LeituraAceitaResponse(BaseModel):
     id: int
@@ -46,6 +48,7 @@ class MetadadosLeituraResponse(BaseModel):
 
 class LeituraResponse(BaseModel):
     id: int
+    direcao: DirecaoCamera | None
     status: str
     nome_arquivo: str
     content_type: str | None
@@ -70,5 +73,4 @@ class RevisaoRequest(BaseModel):
 
     acao: Literal["aceitar", "rejeitar"]
     placa: str | None = Field(default=None, max_length=20)
-    tipo_evento: Literal["entrada", "saida"] | None = None
     motivo: str = Field(min_length=3, max_length=1000, pattern=r"\S")

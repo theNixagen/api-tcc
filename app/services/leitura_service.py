@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import ALPR_MAX_ATTEMPTS, ALPR_MAX_PENDING, ALPR_MAX_PENDING_BYTES
-from app.models.evento import Evento
+from app.models.camera import Camera
 from app.models.leitura import Leitura, MetadadosLeitura, RevisaoLeitura
 from app.services.evento_service import registrar_evento
 from app.services.validacao_leitura import avaliar_leitura, placa_valida
@@ -20,13 +20,25 @@ def verificar_cota(db: Session, tamanho: int) -> None:
         raise HTTPException(503, "Cota da fila atingida. Tente novamente mais tarde.", headers={"Retry-After": "10"})
 
 
+def direcao_da_leitura(db: Session, leitura: Leitura) -> str | None:
+    if leitura.direcao is not None or leitura.camera_id is None:
+        return leitura.direcao
+    return db.scalar(select(Camera.direcao).where(Camera.id == leitura.camera_id))
+
+
 def salvar_deteccoes(db: Session, leitura: Leitura, detections: list[dict]) -> None:
+    leitura.direcao = direcao_da_leitura(db, leitura)
     resultados = []
     for dados in detections:
         resultado, motivo = avaliar_leitura(
             dados["placa"], dados["confianca_deteccao"], dados["confianca_ocr"]
         )
-        evento = registrar_evento(db, dados["placa"], leitura.capturado_em) if resultado == "aceita" else None
+        evento = None
+        if resultado == "aceita":
+            if leitura.direcao is None:
+                resultado, motivo = "revisao", "A câmera estava sem direção durante o processamento."
+            else:
+                evento = registrar_evento(db, dados["placa"], leitura.direcao, leitura.capturado_em)
         db.add(MetadadosLeitura(
             leitura_id=leitura.id, evento_id=evento.id if evento else None,
             resultado=resultado, motivo=motivo, **dados,
@@ -63,11 +75,13 @@ def registrar_revisao(db: Session, leitura: Leitura, dados, usuario, metadado=No
     placa = (dados.placa or "").strip().upper().replace("-", "")
     evento = None
     if dados.acao == "aceitar":
-        if not placa_valida(placa) or dados.tipo_evento is None:
-            raise HTTPException(422, "Informe uma placa valida e o tipo de evento")
-        evento = Evento(placa=placa, tipo_evento=dados.tipo_evento, data_hora=leitura.capturado_em)
-        db.add(evento)
-        db.flush()
+        if not placa_valida(placa):
+            raise HTTPException(422, "Informe uma placa válida")
+        direcao = direcao_da_leitura(db, leitura)
+        if direcao is None:
+            raise HTTPException(409, "A leitura precisa de uma câmera com direção configurada para gerar um evento")
+        leitura.direcao = direcao
+        evento = registrar_evento(db, placa, direcao, leitura.capturado_em)
     db.add(RevisaoLeitura(
         leitura_id=leitura.id, metadado_id=metadado.id if metadado else None,
         usuario_id=usuario.id, username=usuario.username,
