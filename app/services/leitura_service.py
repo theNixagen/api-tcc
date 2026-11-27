@@ -76,7 +76,7 @@ def registrar_revisao(db: Session, leitura: Leitura, dados, usuario, metadado=No
     evento = None
     if dados.acao == "aceitar":
         if not placa_valida(placa):
-            raise HTTPException(422, "Informe uma placa válida")
+            raise HTTPException(422, "Informe uma placa válida, como ABC1234 ou ABC1D23")
         direcao = direcao_da_leitura(db, leitura)
         if direcao is None:
             raise HTTPException(409, "A leitura precisa de uma câmera com direção configurada para gerar um evento")

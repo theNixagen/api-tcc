@@ -21,7 +21,7 @@ class RecortesALPRTest(unittest.TestCase):
             "crop": self.crop, "confidence": 0.94, "bbox": [1, 2, 13, 10],
         }]
         self.ocr = Mock(return_value={
-            "placa": "ABC1234", "texto": "ABC1234", "confianca": 0.87,
+            "placa": "ABC1D23", "texto": "ABC1D23", "confianca": 0.87,
         })
         with patch.dict("sys.modules", {
             "app.services.plate_detector": SimpleNamespace(PlateDetector=Mock(return_value=self.detector)),
@@ -63,7 +63,7 @@ class RecortesALPRTest(unittest.TestCase):
         ):
             resultado = self.processar(self.leitura.id, self.leitura.nome_arquivo, self.leitura.imagem)
         self.assertIn("falha ao salvar recorte", "\n".join(logs.output))
-        self.assertEqual(resultado[0]["placa"], "ABC1234")
+        self.assertEqual(resultado[0]["placa"], "ABC1D23")
 
     def test_recorte_fica_disponivel_mesmo_se_ocr_falhar(self):
         self.ocr.side_effect = ValueError("OCR falhou")

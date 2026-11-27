@@ -7,6 +7,10 @@ def placa_valida(placa: str) -> bool:
     return re.fullmatch(r"[A-Z]{3}(?:[0-9]{4}|[0-9][A-Z][0-9]{2})", placa) is not None
 
 
+def normalizar_texto_ocr(texto: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", texto.upper())
+
+
 def avaliar_leitura(placa: str, deteccao: float, ocr: float | None) -> tuple[str, str | None]:
     if not placa_valida(placa):
         return "revisao", "Placa ausente ou fora do formato brasileiro"

@@ -90,7 +90,7 @@ class FilaImagensTest(unittest.TestCase):
         ):
             return self.worker._processar_proxima()
 
-    def deteccao(self, confianca=0.95, placa="ABC1234"):
+    def deteccao(self, confianca=0.95, placa="ABC1C23"):
         return {"placa": placa, "texto_ocr": placa,
             "confianca_deteccao": 0.94, "confianca_ocr": confianca,
             "bbox": [1, 2, 3, 4], "modelo": "plateDetector.onnx", "imgsz": 640}
@@ -128,7 +128,7 @@ class FilaImagensTest(unittest.TestCase):
             ordem.append(leitura_id)
             with self.session() as db:
                 self.assertEqual(db.get(Leitura, leitura_id).status, "processando")
-            return [{"placa": "ABC1234", "texto_ocr": "ABC-1234",
+            return [{"placa": "ABC1C23", "texto_ocr": "ABC-1C23",
                 "confianca_deteccao": 0.94, "confianca_ocr": 0.87,
                 "bbox": [1, 2, 3, 4], "modelo": "plateDetector.onnx", "imgsz": 640}]
 
@@ -244,6 +244,25 @@ class FilaImagensTest(unittest.TestCase):
         with self.session() as db:
             self.assertIsNone(db.scalar(select(Evento)))
 
+    def test_placa_no_formato_antigo_gera_evento_sem_trocar_caracteres(self):
+        leitura_id = self.enviar()
+        self.processar([self.deteccao(0.993, "EWT8125")])
+
+        detalhe = self.client.get(f"/leituras/{leitura_id}").json()
+        deteccao = detalhe["detections"][0]
+        self.assertEqual(detalhe["resultado"], "aceita")
+        self.assertEqual((deteccao["placa"], deteccao["texto_ocr"]), ("EWT8125", "EWT8125"))
+        with self.session() as db:
+            evento = db.get(Evento, deteccao["evento_id"])
+            self.assertEqual(evento.placa, "EWT8125")
+
+    def test_texto_fora_dos_formatos_brasileiros_exige_revisao(self):
+        leitura_id = self.enviar()
+        self.processar([self.deteccao(0.99, "ABC1D2S")])
+        detalhe = self.client.get(f"/leituras/{leitura_id}").json()
+        self.assertEqual(detalhe["resultado"], "revisao")
+        self.assertIsNone(detalhe["detections"][0]["evento_id"])
+
     def test_sem_deteccao_vai_para_revisao_sem_inventar_metadados(self):
         leitura_id = self.enviar()
         self.processar([])
@@ -255,18 +274,18 @@ class FilaImagensTest(unittest.TestCase):
     def test_aceita_imagem_sem_deteccao_com_auditoria_e_sem_duplicar_evento(self):
         leitura_id = self.enviar()
         self.processar([])
-        dados = {"acao": "aceitar", "placa": "ABC1D23", "motivo": "Placa conferida na imagem"}
+        dados = {"acao": "aceitar", "placa": "ABC1234", "motivo": "Placa conferida na imagem"}
         response = self.client.post(f"/leituras/{leitura_id}/revisar", json=dados)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(self.client.post(f"/leituras/{leitura_id}/revisar", json=dados).status_code, 409)
         auditoria = self.client.get(f"/leituras/{leitura_id}/revisoes").json()
         self.assertEqual(len(auditoria), 1)
         self.assertIsNone(auditoria[0]["metadado_id"])
-        self.assertEqual(auditoria[0]["placa_corrigida"], "ABC1D23")
+        self.assertEqual(auditoria[0]["placa_corrigida"], "ABC1234")
         with self.session() as db:
             evento = db.scalar(select(Evento))
             leitura = db.get(Leitura, leitura_id)
-            self.assertEqual((evento.placa, evento.tipo_evento), ("ABC1D23", "entrada"))
+            self.assertEqual((evento.placa, evento.tipo_evento), ("ABC1234", "entrada"))
             self.assertEqual(evento.data_hora, leitura.capturado_em)
             self.assertEqual(leitura.resultado, "aceita")
             self.assertIsNone(db.scalar(select(MetadadosLeitura)))
@@ -289,7 +308,7 @@ class FilaImagensTest(unittest.TestCase):
         with self.session() as db:
             db.get(Leitura, leitura_id).imagem = None
             db.commit()
-        dados["placa"] = "ABC1234"
+        dados["placa"] = "ABC1D23"
         self.assertEqual(self.client.post(f"/leituras/{leitura_id}/revisar", json=dados).status_code, 409)
         with self.session() as db:
             self.assertIsNone(db.scalar(select(Evento)))
@@ -315,7 +334,7 @@ class FilaImagensTest(unittest.TestCase):
             self.assertEqual((evento.placa, evento.tipo_evento), ("ABC1D23", "entrada"))
             auditoria = db.scalar(select(RevisaoLeitura))
             self.assertEqual(auditoria.username, "operador")
-            self.assertEqual(auditoria.placa_anterior, "ABC1234")
+            self.assertEqual(auditoria.placa_anterior, "ABC1C23")
             self.assertEqual(db.get(Leitura, leitura_id).resultado, "aceita")
 
     def test_rejeicao_auditada_nao_cria_evento(self):
@@ -362,7 +381,7 @@ class FilaImagensTest(unittest.TestCase):
         with self.session() as db:
             eventos = list(db.scalars(select(Evento).order_by(Evento.data_hora)))
             self.assertEqual([e.tipo_evento for e in eventos], ["saida", "entrada", "entrada", "saida", "saida"])
-            acessos = listar_acessos(db, placa="ABC1234")["itens"]
+            acessos = listar_acessos(db, placa="ABC1C23")["itens"]
         self.assertEqual(
             [(a["id"], a["status"], a["data_hora_saida"]) for a in acessos],
             [(eventos[2].id, "concluido", eventos[3].data_hora), (eventos[1].id, "pendente", None)],
@@ -385,7 +404,7 @@ class FilaImagensTest(unittest.TestCase):
         deteccao = detalhe["detections"][0]
         self.assertIsNone(deteccao["evento_id"])
         rota_revisao = f"/leituras/deteccoes/{deteccao['id']}/revisar"
-        dados = {"acao": "aceitar", "placa": "ABC1234", "motivo": "Placa conferida"}
+        dados = {"acao": "aceitar", "placa": "ABC1C23", "motivo": "Placa conferida"}
         self.assertEqual(self.client.post(rota_revisao, json=dados).status_code, 409)
 
         self.usuario.papel = "admin"

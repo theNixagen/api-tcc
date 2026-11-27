@@ -67,7 +67,7 @@ Camadas:
 - PostgreSQL: dados permanentes.
 - Redis: estado de sessao dos JWTs.
 - Modelo YOLO em `models/plateDetector.pt`.
-- PaddleOCR para OCR.
+- FastPlateOCR com o modelo `cct-s-v2-global-model` para OCR local em CPU.
 
 ## Configuracao
 
@@ -151,7 +151,7 @@ Prerequisitos instalados no seu PC:
 
 - Python 3.12
 - Docker
-- bibliotecas do sistema usadas por OpenCV/Paddle/YOLO, equivalentes a `libglib2.0-0`, `libgl1` e `libgomp1` no Debian/Ubuntu
+- bibliotecas do sistema usadas por OpenCV e YOLO, equivalentes a `libglib2.0-0`, `libgl1` e `libgomp1` no Debian/Ubuntu
 
 Crie e ative o ambiente Python:
 
@@ -161,6 +161,9 @@ python3.12 -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
+
+O FastPlateOCR baixa o modelo no primeiro uso local e reutiliza o cache.
+A imagem Docker já inclui o modelo baixado durante o build.
 
 Suba apenas PostgreSQL e Redis:
 
@@ -488,8 +491,8 @@ Exemplo de consulta concluida (campos de data omitidos):
   "detections": [
     {
       "id": 1,
-      "placa": "ABC1234",
-      "texto_ocr": "ABC-1234",
+      "placa": "ABC1D23",
+      "texto_ocr": "ABC-1D23",
       "evento_id": 1,
       "confianca_deteccao": 0.91,
       "confianca_ocr": 0.95,
@@ -523,20 +526,24 @@ O botao **Ver leitura** abre uma pagina exclusiva em `#/leituras/<id>`, com
 link de volta para a listagem. O endereco permite acesso direto, recarga e
 navegacao pelos botoes voltar/avancar do navegador.
 
-Uma placa so gera evento automaticamente se seguir o formato brasileiro antigo
-(`ABC1234`) ou Mercosul (`ABC1D23`) e atingir ambos os limites de confianca.
+Uma placa só gera evento automaticamente se seguir o formato brasileiro antigo
+(`ABC1234`) ou Mercosul (`ABC1D23`) e atingir ambos os limites de confiança.
 Os valores iniciais sao **0.70 para deteccao** e **0.80 para OCR**, configuraveis
 por `DETECTION_MIN_CONFIDENCE` e `OCR_MIN_CONFIDENCE`. Sao valores provisórios,
 nao calibrados: avalie-os com fotos rotuladas das cameras antes de confiar nos resultados.
 O detector coleta candidatos a partir de 0.40; os candidatos abaixo do limite
 de aceitacao, com texto invalido ou confianca OCR ausente ficam para revisao.
 
+O FastPlateOCR lê o recorte da placa. Os metadados guardam o texto devolvido pelo
+modelo e a média das confianças dos caracteres lidos. A placa usada no evento
+conserva as letras e os números que o modelo leu.
+
 Na revisão, o operador informa placa e justificativa para aceitar, ou apenas a
 justificativa para rejeitar. A câmera determina a direção do evento.
 A auditoria preserva usuario, texto anterior,
 correcao, acao, motivo, evento e data. Uma deteccao ja revisada nao pode criar outro evento.
 Se o detector nao encontrar placas, a mesma tela oferece a revisao da imagem
-original. Informar uma placa brasileira válida cria um evento com a direção da
+original. Informar uma placa no padrão brasileiro antigo ou Mercosul cria um evento com a direção da
 câmera e o horário da captura. Rejeitar registra a justificativa sem criar evento.
 Nao sao inventados metadados de deteccao, coordenadas ou confiancas para uma
 placa informada manualmente. Essa auditoria fica vinculada diretamente a leitura.

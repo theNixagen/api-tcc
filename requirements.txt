@@ -3,8 +3,7 @@ uvicorn[standard]
 python-multipart
 opencv-python-headless
 ultralytics
-paddleocr
-paddlepaddle
+fast-plate-ocr[onnx]==1.1.0
 requests
 python-dotenv
 sqlalchemy

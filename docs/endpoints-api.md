@@ -80,7 +80,8 @@ imagem_disponivel, nome do arquivo, tipo, tamanho, datas,
 duracao, erro e detections com placa, evento_id, confiancas de deteccao e OCR,
 texto original do OCR, bbox, modelo e imgsz.
 Obs: sem placas, resultado=revisao e detections vazio; a revisao usa a imagem original.
-Baixa confianca/formato invalido tambem gera revisao, sem evento automatico.
+Baixa confiança ou texto fora dos formatos brasileiros antigo e Mercosul geram revisão.
+confianca_ocr é a média das confianças dos caracteres lidos pelo FastPlateOCR.
 Erro: 404 se nao existir ou pertencer a outra câmera.
 ```
 
@@ -132,7 +133,7 @@ Saida: 202 com id e status pendente; 409 se nao elegivel; 503 se atingir cota.
 POST /leituras/deteccoes/{id}/revisar
 Auth: Bearer admin ou operador.
 Entrada: acao (aceitar/rejeitar), motivo e placa para aceitar.
-Aceitar exige placa brasileira válida e direção da câmera. O evento usa o horário da captura.
+Aceitar exige placa no formato brasileiro antigo ou Mercosul e direção da câmera. O evento usa o horário da captura.
 Rejeitar nao cria evento. Deteccao ja revisada retorna 409.
 ```
 
@@ -141,7 +142,7 @@ POST /leituras/{id}/revisar
 Auth: Bearer admin ou operador.
 Revisa uma imagem concluida, pendente de revisao e sem deteccoes.
 Entrada: acao (aceitar/rejeitar), motivo e placa para aceitar.
-Aceitar exige imagem original disponível, placa brasileira válida e direção da câmera.
+Aceitar exige imagem original disponível, placa no formato brasileiro antigo ou Mercosul e direção da câmera.
 Rejeitar registra a decisao sem criar evento. Ambas as acoes geram auditoria vinculada a leitura.
 Nao cria metadados de deteccao ficticios. Leitura ja revisada ou com deteccoes retorna 409.
 ```

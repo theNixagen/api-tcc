@@ -18,6 +18,8 @@ RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
 COPY app ./app
+RUN python -c "import app.services.plate_ocr"
+
 COPY gerar_camera_secret.py .
 COPY models ./models
 
